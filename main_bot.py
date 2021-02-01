@@ -42,12 +42,9 @@ def repost():
     r = r.splitlines()
     users_r.close()
     for i in r:
-        if i == '1103761115':
-            return None
-        else:
-            bot.send_message(i,
-                             text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
-                             parse_mode='HTML', disable_notification=True)
+        bot.send_message(i,
+                         text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
+                         parse_mode='HTML', disable_notification=True)
 
 
 def rand_quo():
