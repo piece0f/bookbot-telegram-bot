@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import os
 import telebot
 from telebot import types
 import schedule
@@ -10,7 +11,7 @@ from quotes import*
 
 
 # built-ins
-token = '1480667214:AAFuuQu7aF6Cx1wIDIFGwnsdCQDAeDqZU-s'
+token = os.environ.get('TG_TOKEN')
 bot = telebot.TeleBot(token)
 stopped = []
 
