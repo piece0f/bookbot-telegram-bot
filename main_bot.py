@@ -60,7 +60,7 @@ def repost():
                              parse_mode='HTML', disable_notification=True)
 
 
-def quote_4_user():
+def random_quote():
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
     for user_id in r:
@@ -77,7 +77,7 @@ def quote_4_user():
                          parse_mode='HTML', reply_markup=keyboard)
 
 
-schedule.every().day.at('14:00').do(quote_4_user)
+schedule.every().day.at('14:00').do(random_quote)
 schedule.every(2).days.at('16:00').do(repost)
 
 
@@ -88,13 +88,20 @@ def start(message):
         r = users_r.read().replace('\\n', '').splitlines()
     with open('users', 'a') as users_w:
         user_id = message.from_user.id
-        bot.send_message(message.from_user.id,
-                         '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день, утром и вечером будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
+        bot.send_message(user_id,
+                         '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
                          parse_mode='HTML')
 
         if str(user_id) not in r:
             users_w.write(str(user_id) + '\n')
             print(message.from_user.username)
+            quote = quote_4_user_checker(user_id)
+            keyboard = types.InlineKeyboardMarkup()
+            key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
+            keyboard.add(key_book)
+            bot.send_message(user_id,
+                             text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
+                             parse_mode='HTML')
 
 
 # on stop
@@ -198,4 +205,5 @@ def polling():
         polling()
 
 
+# random_quote()
 polling()
