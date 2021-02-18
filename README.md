@@ -1,5 +1,6 @@
 # BookBot by piece0f {RU}
 This is a bot for Telegram created during the learning of Telegram API and MongoDB by <b>piece0f</b>.
+Also, some variables in this reposytory (f.e. Telegram token) is contains in my system environment variables.
 
 # Telegram: 
 <a href="https://t.me/bookb0t_bot">@bookb0t_bot</a></tt>
