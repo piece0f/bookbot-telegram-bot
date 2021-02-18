@@ -7,15 +7,20 @@ import schedule
 import time
 import random
 from threading import Thread
-from quotes import*
-
+import pymongo
 
 # built-ins
 token = os.environ.get('TG_TOKEN')
+mongoDB = os.environ.get('mongoDB')
+client = pymongo.MongoClient(f"{mongoDB}")
+DB = client["BookBot"]["quotes_queue"]
 bot = telebot.TeleBot(token)
+
+# variables
 stopped = []
 
 
+# Async thread (time scheduler)
 class AsyncScheduler(Thread):
     def __init__(self, name):
         Thread.__init__(self)
@@ -23,71 +28,73 @@ class AsyncScheduler(Thread):
 
     def run(self):
         while True:
-            try:
-                schedule.run_pending()
-                time.sleep(59)
-            except:
-                self.run()
+            schedule.run_pending()
+            time.sleep(59)
 
 
 scheduler = AsyncScheduler('Проверка времени')
 scheduler.start()
 
 
-
 # functional
+def quote_4_user_checker(user_id):
+    """checks for quote available for {user}"""
+    while True:
+        quote = DB.find({})[random.randint(0, DB.count_documents({}) - 1)]
+        if user_id not in quote["Users"]:
+            users = quote["Users"] + [user_id]
+            required_quote = quote
+            DB.update_one({"Quote": quote["Quote"]}, {"$set": {"Users": users}})
+            return required_quote
+
+
 def repost():
-    users_r = open('users', 'r')
-    r = users_r.read().replace('\\n', '')
-    r = r.splitlines()
-    users_r.close()
+    with open('users', 'r') as users_r:
+        r = users_r.read().replace('\\n', '').splitlines()
     for i in r:
-        bot.send_message(i,
-                         text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
-                         parse_mode='HTML', disable_notification=True)
-
-
-def rand_quo():
-    users_r = open('users', 'r')
-    r = users_r.read().replace('\\n', '')
-    r = r.splitlines()
-    users_r.close()
-    for i in r:
-        if i not in stopped:
-            number = random.randint(0, len(randoms) - 1)
-            keyboard = types.InlineKeyboardMarkup()
-            key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=randoms[number][3])
-            keyboard.add(key_book)  # добавляем кнопку в клавиатуру
-            #   key_like = types.InlineKeyboardButton(text='Нет', callback_data='no')
-            #   keyboard.add(key_like)
-            bot.send_message(i, text=f'<i>{randoms[number][0]}\n</i>\n<b>{randoms[number][1]}</b>\n#{randoms[number][2]}',
-                             parse_mode='HTML', reply_markup=keyboard)
-        elif i in stopped:
+        if i == '1103761115':
             return None
+        else:
+            bot.send_message(i,
+                             text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
+                             parse_mode='HTML', disable_notification=True)
 
-# rand_quo()
 
-schedule.every().day.at('14:00').do(rand_quo)
+def quote_4_user():
+    with open('users', 'r') as users_r:
+        r = users_r.read().replace('\\n', '').splitlines()
+    for user_id in r:
+        if user_id in stopped:
+            return None
+        quote = quote_4_user_checker(user_id)
+        keyboard = types.InlineKeyboardMarkup()
+        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
+        keyboard.add(key_book)  # добавляем кнопку в клавиатуру
+        #   key_like = types.InlineKeyboardButton(text='Нет', callback_data='no')
+        #   keyboard.add(key_like)
+        bot.send_message(user_id,
+                         text=f'<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
+                         parse_mode='HTML', reply_markup=keyboard)
+
+
+schedule.every().day.at('14:00').do(quote_4_user)
 schedule.every(2).days.at('16:00').do(repost)
-
 
 
 # on start
 @bot.message_handler(commands=['start'])
 def start(message):
-    users_r = open('users', 'r')
-    r = users_r.read().replace('\\n', '')
-    r = r.splitlines()
-    users_r.close()
-    users_w = open('users', 'a')
-    user_id = message.from_user.id
-    bot.send_message(message.from_user.id,
-                     '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день, утром и вечером будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
-                     parse_mode='HTML')
-    if str(user_id) not in r:
-        users_w.write(str(user_id) + '\n')
-        print(message.from_user.username)
-    users_w.close()
+    with open('users', 'r') as users_r:
+        r = users_r.read().replace('\\n', '').splitlines()
+    with open('users', 'a') as users_w:
+        user_id = message.from_user.id
+        bot.send_message(message.from_user.id,
+                         '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день, утром и вечером будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
+                         parse_mode='HTML')
+
+        if str(user_id) not in r:
+            users_w.write(str(user_id) + '\n')
+            print(message.from_user.username)
 
 
 # on stop
@@ -118,7 +125,7 @@ def resume(message):
 
 # on help
 @bot.message_handler(commands=['help'])
-def help(message):
+def help_command(message):
     commands = '<b>Список команд:\n</b>\n/stop<i> - приостановить рассылку\n</i>\n/resume<i> - возобновить рассылку\n</i>\n/report<i> - сообщить о проблеме или предложении</i>'
     bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
 
@@ -162,27 +169,32 @@ def callback_worker(call):
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
 
+
 def report_send(message):
     bot.send_message(977341432,
                      f'❗ <b>Поступила жалоба:\n</b>\n<i>{message.text}\n</i>\nот @{message.from_user.username}',
                      parse_mode='HTML')
-    bot.send_message(message.from_user.id, f'✔ <b>Жалоба успешно подана на рассмотрение!\n</b>\nСпасибо за Вашу помощь!',
+    bot.send_message(message.from_user.id,
+                     f'✔ <b>Жалоба успешно подана на рассмотрение!\n</b>\nСпасибо за Вашу помощь!',
                      parse_mode='HTML')
+
 
 def support_send(message):
     bot.send_message(977341432,
                      f'💡 <b>Поступило предложение:\n</b>\n<i>{message.text}\n</i>\nот @{message.from_user.username}',
                      parse_mode='HTML')
-    bot.send_message(message.from_user.id, f'✔ <b>Предложение успешно подано на рассмотрение!\n</b>\nСпасибо за Вашу помощь!',
+    bot.send_message(message.from_user.id,
+                     f'✔ <b>Предложение успешно подано на рассмотрение!\n</b>\nСпасибо за Вашу помощь!',
                      parse_mode='HTML')
-
-
 
 
 def polling():
     try:
         bot.polling(none_stop=True, interval=2)
-    except:
+    except Exception as error:
+        bot.send_message(977341432,
+                         f'🛑 <b>ОШИБКА:\n</b>\n<i>{error}\n</i>',
+                         parse_mode='HTML')
         polling()
 
 
