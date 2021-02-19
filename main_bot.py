@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+BookBot is telegram bot, based on telegram API and MongoDB.
+His objective is to send interesting quotes from books to users.
+"""
 
 import os
 import telebot
@@ -18,6 +22,7 @@ bot = telebot.TeleBot(token)
 
 # variables
 stopped = []
+callback_cancel = False
 
 
 # Async thread (time scheduler)
@@ -37,8 +42,8 @@ scheduler.start()
 
 
 # functional
-def quote_4_user_checker(user_id):
-    """checks for quote available for {user}"""
+def quote_4_user_checker(user_id: str):
+    """Checks for quote available for {user}"""
     while True:
         quote = DB.find({})[random.randint(0, DB.count_documents({}) - 1)]
         if user_id not in quote["Users"]:
@@ -48,7 +53,8 @@ def quote_4_user_checker(user_id):
             return required_quote
 
 
-def repost():
+def promo():
+    """Sends a little promotional message for all users (except my gf)"""
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
     for i in r:
@@ -61,6 +67,7 @@ def repost():
 
 
 def random_quote():
+    """Sends random quote for users who aren't in 'stopped' list"""
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
     for user_id in r:
@@ -78,12 +85,13 @@ def random_quote():
 
 
 schedule.every().day.at('14:00').do(random_quote)
-schedule.every(2).days.at('16:00').do(repost)
+schedule.every(2).days.at('16:00').do(promo)
 
 
 # on start
 @bot.message_handler(commands=['start'])
 def start(message):
+    """Welcome message, also sends a demo quote"""
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
     with open('users', 'a') as users_w:
@@ -92,21 +100,24 @@ def start(message):
                          '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
                          parse_mode='HTML')
 
-        if str(user_id) not in r:
-            users_w.write(str(user_id) + '\n')
-            print(message.from_user.username)
-            quote = quote_4_user_checker(user_id)
-            keyboard = types.InlineKeyboardMarkup()
-            key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
-            keyboard.add(key_book)
-            bot.send_message(user_id,
-                             text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
-                             parse_mode='HTML')
+        if str(user_id) in r:
+            return
+
+        users_w.write(str(user_id) + '\n')
+        print(message.from_user.username)
+        quote = quote_4_user_checker(user_id)
+        keyboard = types.InlineKeyboardMarkup()
+        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
+        keyboard.add(key_book)
+        bot.send_message(user_id,
+                         text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
+                         parse_mode='HTML')
 
 
 # on stop
 @bot.message_handler(commands=['stop'])
 def stop(message):
+    """Moves user to 'stopped' list, so he won't receive sheduled quotes"""
     if message.from_user.id not in stopped:
         stopped.append(message.from_user.id)
         bot.send_message(message.from_user.id,
@@ -121,6 +132,7 @@ def stop(message):
 # on resume
 @bot.message_handler(commands=['resume'])
 def resume(message):
+    """Removes user from 'stopped' list"""
     if message.from_user.id in stopped:
         stopped.remove(message.from_user.id)
         bot.send_message(message.from_user.id, '<b>✔ Рассылка цитат возобновлена!</b>',
@@ -133,6 +145,7 @@ def resume(message):
 # on help
 @bot.message_handler(commands=['help'])
 def help_command(message):
+    """Help with all commands"""
     commands = '<b>Список команд:\n</b>\n/stop<i> - приостановить рассылку\n</i>\n/resume<i> - возобновить рассылку\n</i>\n/report<i> - сообщить о проблеме или предложении</i>'
     bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
 
@@ -140,6 +153,7 @@ def help_command(message):
 # on report
 @bot.message_handler(commands=['report'])
 def report(message):
+    """Report about problem or idea from user to admin"""
     keyboard = types.InlineKeyboardMarkup()
     key_report = types.InlineKeyboardButton(text='❗ Проблема/Ошибка', callback_data='report')
     keyboard.add(key_report)  # добавляем кнопку в клавиатуру
@@ -152,8 +166,9 @@ def report(message):
 # on messages
 @bot.message_handler(content_types=['text', 'voice', 'audio'])
 def get_text_messages(message):
+    """Reacts to audio message. Juat for fun"""
     if message.voice is not None or message.audio is not None:
-        bot.send_message(message.from_user.id, 'Ммм... Рай для моих ушей')
+        bot.send_message(message.from_user.id, 'Ммм... Рай для моих ушей ✨')
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -165,19 +180,31 @@ def callback_worker(call):
         bot.send_message(call.message.chat.id,
                          '<i>Опишите проблему, Ваше сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
                          parse_mode='HTML', reply_markup=keyboard)
+        print(1)
         bot.register_next_step_handler(call.message, report_send)
+        print(2)
+        
     elif call.data == "support":
         bot.send_message(call.message.chat.id,
                          '<i>Опишите Вашу идею, сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
                          parse_mode='HTML', reply_markup=keyboard)
-        bot.register_next_step_handler(call.message, support_send)
+        bot.register_next_step_handler(call.message, support_send)   
+        
     elif call.data == 'cancel':
+        global callback_cancel
+        callback_cancel = True
         bot.send_message(call.message.chat.id,
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
+        
+        
 
 
 def report_send(message):
+    global callback_cancel
+    if callback_cancel == True:
+        callback_cancel = False
+        return
     bot.send_message(977341432,
                      f'❗ <b>Поступила жалоба:\n</b>\n<i>{message.text}\n</i>\nот @{message.from_user.username}',
                      parse_mode='HTML')
@@ -187,6 +214,10 @@ def report_send(message):
 
 
 def support_send(message):
+    global callback_cancel
+    if callback_cancel == True:
+        callback_cancel = False
+        return
     bot.send_message(977341432,
                      f'💡 <b>Поступило предложение:\n</b>\n<i>{message.text}\n</i>\nот @{message.from_user.username}',
                      parse_mode='HTML')
@@ -198,10 +229,7 @@ def support_send(message):
 def polling():
     try:
         bot.polling(none_stop=True, interval=2)
-    except Exception as error:
-        bot.send_message(977341432,
-                         f'🛑 <b>ОШИБКА:\n</b>\n<i>{error}\n</i>',
-                         parse_mode='HTML')
+    except Exception as e:
         polling()
 
 
