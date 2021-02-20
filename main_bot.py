@@ -117,7 +117,7 @@ def start(message):
 # on stop
 @bot.message_handler(commands=['stop'])
 def stop(message):
-    """Moves user to 'stopped' list, so he won't receive sheduled quotes"""
+    """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
     if message.from_user.id not in stopped:
         stopped.append(message.from_user.id)
         bot.send_message(message.from_user.id,
@@ -166,7 +166,7 @@ def report(message):
 # on messages
 @bot.message_handler(content_types=['text', 'voice', 'audio'])
 def get_text_messages(message):
-    """Reacts to audio message. Juat for fun"""
+    """Reacts to audio message. Just for fun"""
     if message.voice is not None or message.audio is not None:
         bot.send_message(message.from_user.id, 'Ммм... Рай для моих ушей ✨')
 
@@ -183,26 +183,24 @@ def callback_worker(call):
         print(1)
         bot.register_next_step_handler(call.message, report_send)
         print(2)
-        
+
     elif call.data == "support":
         bot.send_message(call.message.chat.id,
                          '<i>Опишите Вашу идею, сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
                          parse_mode='HTML', reply_markup=keyboard)
-        bot.register_next_step_handler(call.message, support_send)   
-        
+        bot.register_next_step_handler(call.message, support_send)
+
     elif call.data == 'cancel':
         global callback_cancel
         callback_cancel = True
         bot.send_message(call.message.chat.id,
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
-        
-        
 
 
 def report_send(message):
     global callback_cancel
-    if callback_cancel == True:
+    if callback_cancel:
         callback_cancel = False
         return
     bot.send_message(977341432,
@@ -215,7 +213,7 @@ def report_send(message):
 
 def support_send(message):
     global callback_cancel
-    if callback_cancel == True:
+    if callback_cancel:
         callback_cancel = False
         return
     bot.send_message(977341432,
@@ -228,8 +226,9 @@ def support_send(message):
 
 def polling():
     try:
-        bot.polling(none_stop=True, interval=2)
-    except Exception as e:
+        bot.polling(none_stop=True, interval=1)
+    # noinspection PyBroadException
+    except Exception:
         polling()
 
 
