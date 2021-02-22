@@ -42,6 +42,51 @@ scheduler.start()
 
 
 # functional
+# on stop
+def stop(message):
+    """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
+    if message.from_user.id not in stopped:
+        stopped.append(message.from_user.id)
+        bot.send_message(message.from_user.id,
+                         '<b>❌ Рассылка цитат приостановлена!\n</b> \nЧтобы возобновить напишите /resume',
+                         parse_mode='HTML')
+    elif message.from_user.id in stopped:
+        bot.send_message(message.from_user.id,
+                         '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
+                         parse_mode='HTML')
+
+
+# on resume
+def resume(message):
+    """Removes user from 'stopped' list"""
+    if message.from_user.id in stopped:
+        stopped.remove(message.from_user.id)
+        bot.send_message(message.from_user.id, '<b>✔ Рассылка цитат возобновлена!</b>',
+                         parse_mode='HTML')
+    elif message.from_user.id not in stopped:
+        bot.send_message(message.from_user.id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
+                         parse_mode='HTML')
+
+
+# on help
+def help_command(message):
+    """Help with all commands"""
+    commands = '<b>Список команд:\n</b>\n/stop<i> - приостановить рассылку\n</i>\n/resume<i> - возобновить рассылку\n</i>\n/report<i> - сообщить о проблеме или предложении</i>'
+    bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
+
+
+# on report
+def report(message):
+    """Report about problem or idea from user to admin"""
+    keyboard = types.InlineKeyboardMarkup()
+    key_report = types.InlineKeyboardButton(text='❗ Проблема/Ошибка', callback_data='report')
+    keyboard.add(key_report)  # добавляем кнопку в клавиатуру
+    key_support = types.InlineKeyboardButton(text='💡 Идея/Предложение', callback_data='support')
+    keyboard.add(key_support)
+    bot.send_message(message.from_user.id, text=f'О чем вы хотите <b>сообщить</b>?', parse_mode='HTML',
+                     reply_markup=keyboard)
+
+    
 def quote_4_user_checker(user_id: str):
     """Checks for quote available for {user}"""
     while True:
@@ -84,120 +129,6 @@ def random_quote():
                          parse_mode='HTML', reply_markup=keyboard)
 
 
-schedule.every().day.at('14:00').do(random_quote)
-schedule.every(2).days.at('16:00').do(promo)
-
-
-# on start
-@bot.message_handler(commands=['start'])
-def start(message):
-    """Welcome message, also sends a demo quote"""
-    with open('users', 'r') as users_r:
-        r = users_r.read().replace('\\n', '').splitlines()
-    with open('users', 'a') as users_w:
-        user_id = message.from_user.id
-        bot.send_message(user_id,
-                         '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
-                         parse_mode='HTML')
-
-        if str(user_id) in r:
-            return
-
-        users_w.write(str(user_id) + '\n')
-        print(message.from_user.username)
-        quote = quote_4_user_checker(user_id)
-        keyboard = types.InlineKeyboardMarkup()
-        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
-        keyboard.add(key_book)
-        bot.send_message(user_id,
-                         text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
-                         parse_mode='HTML')
-
-
-# on stop
-@bot.message_handler(commands=['stop'])
-def stop(message):
-    """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
-    if message.from_user.id not in stopped:
-        stopped.append(message.from_user.id)
-        bot.send_message(message.from_user.id,
-                         '<b>❌ Рассылка цитат приостановлена!\n</b> \nЧтобы возобновить напишите /resume',
-                         parse_mode='HTML')
-    elif message.from_user.id in stopped:
-        bot.send_message(message.from_user.id,
-                         '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
-                         parse_mode='HTML')
-
-
-# on resume
-@bot.message_handler(commands=['resume'])
-def resume(message):
-    """Removes user from 'stopped' list"""
-    if message.from_user.id in stopped:
-        stopped.remove(message.from_user.id)
-        bot.send_message(message.from_user.id, '<b>✔ Рассылка цитат возобновлена!</b>',
-                         parse_mode='HTML')
-    elif message.from_user.id not in stopped:
-        bot.send_message(message.from_user.id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
-                         parse_mode='HTML')
-
-
-# on help
-@bot.message_handler(commands=['help'])
-def help_command(message):
-    """Help with all commands"""
-    commands = '<b>Список команд:\n</b>\n/stop<i> - приостановить рассылку\n</i>\n/resume<i> - возобновить рассылку\n</i>\n/report<i> - сообщить о проблеме или предложении</i>'
-    bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
-
-
-# on report
-@bot.message_handler(commands=['report'])
-def report(message):
-    """Report about problem or idea from user to admin"""
-    keyboard = types.InlineKeyboardMarkup()
-    key_report = types.InlineKeyboardButton(text='❗ Проблема/Ошибка', callback_data='report')
-    keyboard.add(key_report)  # добавляем кнопку в клавиатуру
-    key_support = types.InlineKeyboardButton(text='💡 Идея/Предложение', callback_data='support')
-    keyboard.add(key_support)
-    bot.send_message(message.from_user.id, text=f'О чем вы хотите <b>сообщить</b>?', parse_mode='HTML',
-                     reply_markup=keyboard)
-
-
-# on messages
-@bot.message_handler(content_types=['text', 'voice', 'audio'])
-def get_text_messages(message):
-    """Reacts to audio message. Just for fun"""
-    if message.voice is not None or message.audio is not None:
-        bot.send_message(message.from_user.id, 'Ммм... Рай для моих ушей ✨')
-
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_worker(call):
-    keyboard = types.InlineKeyboardMarkup()
-    key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
-    keyboard.add(key_cancel)
-    if call.data == "report":
-        bot.send_message(call.message.chat.id,
-                         '<i>Опишите проблему, Ваше сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
-                         parse_mode='HTML', reply_markup=keyboard)
-        print(1)
-        bot.register_next_step_handler(call.message, report_send)
-        print(2)
-
-    elif call.data == "support":
-        bot.send_message(call.message.chat.id,
-                         '<i>Опишите Вашу идею, сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
-                         parse_mode='HTML', reply_markup=keyboard)
-        bot.register_next_step_handler(call.message, support_send)
-
-    elif call.data == 'cancel':
-        global callback_cancel
-        callback_cancel = True
-        bot.send_message(call.message.chat.id,
-                         '<b><i>Отменено!</i></b>',
-                         parse_mode='HTML')
-
-
 def report_send(message):
     global callback_cancel
     if callback_cancel:
@@ -222,6 +153,99 @@ def support_send(message):
     bot.send_message(message.from_user.id,
                      f'✔ <b>Предложение успешно подано на рассмотрение!\n</b>\nСпасибо за Вашу помощь!',
                      parse_mode='HTML')
+
+    
+schedule.every().day.at('14:00').do(random_quote)
+schedule.every(2).days.at('16:00').do(promo)
+
+
+# [ADMIN]
+@bot.message_handler(commands=['quote', 'promo'])
+def admin(message):
+    """Admin message handler, answers on admin requests"""
+    print('Admin command execution...')
+    if message.from_user.id != 977341432:
+        print('False: Non-admin request')
+        return
+    if message.text == '/quote':
+        random_quote()
+    elif message.text == '/promo':
+        promo()
+    else:
+        print('Wrong code')
+
+        
+# [START]
+@bot.message_handler(commands=['start'])
+def start(message):
+    """Welcome message, also sends a demo quote"""
+    with open('users', 'r') as users_r:
+        r = users_r.read().replace('\\n', '').splitlines()
+    with open('users', 'a') as users_w:
+        user_id = message.from_user.id
+        bot.send_message(user_id,
+                         '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
+                         parse_mode='HTML')
+        if str(user_id) in r:
+            return
+        users_w.write(str(user_id) + '\n')
+        print(message.from_user.username)
+        quote = quote_4_user_checker(user_id)
+        keyboard = types.InlineKeyboardMarkup()
+        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
+        keyboard.add(key_book)
+        bot.send_message(user_id,
+                         text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
+                         parse_mode='HTML')
+
+
+# user commands handler
+@bot.message_handler(commands=['stop','resume', 'help', 'report'])
+def commands_handler(message):
+    command = message.text
+    if command == '/stop':
+        stop(message)
+    elif command == '/resume':
+        resume(message)
+    elif command == '/help':
+        help_command(message)
+    elif command == '/report':
+        report(message)
+    else:
+        print('Wrong code')
+
+
+# on audio
+@bot.message_handler(content_types=['voice', 'audio'])
+def get_audio_messages(message):
+    """Reacts to audio message. Just for fun"""
+    if message.voice is not None or message.audio is not None:
+        bot.send_message(message.from_user.id, 'Ммм... Рай для моих ушей ✨')
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_worker(call):
+    keyboard = types.InlineKeyboardMarkup()
+    key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
+    keyboard.add(key_cancel)
+    if call.data == "report":
+        bot.send_message(call.message.chat.id,
+                         '<i>Опишите проблему, Ваше сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
+                         parse_mode='HTML', reply_markup=keyboard)
+        bot.register_next_step_handler(call.message, report_send)
+
+    elif call.data == "support":
+        bot.send_message(call.message.chat.id,
+                         '<i>Опишите Вашу идею, сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
+                         parse_mode='HTML', reply_markup=keyboard)
+        bot.register_next_step_handler(call.message, support_send)
+
+    elif call.data == 'cancel':
+        global callback_cancel
+        callback_cancel = True
+        bot.send_message(call.message.chat.id,
+                         '<b><i>Отменено!</i></b>',
+                         parse_mode='HTML')
 
 
 def polling():
