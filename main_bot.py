@@ -102,13 +102,12 @@ def promo():
     """Sends a little promotional message for all users (except my gf)"""
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
-    for i in r:
-        if i == '1103761115':
-            return None
-        else:
-            bot.send_message(i,
-                             text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
-                             parse_mode='HTML', disable_notification=True)
+    for id in r:
+        if id == '1103761115':
+            continue
+        bot.send_message(id,
+                         text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
+                         parse_mode='HTML', disable_notification=True)
 
 
 def random_quote():
@@ -117,7 +116,7 @@ def random_quote():
         r = users_r.read().replace('\\n', '').splitlines()
     for user_id in r:
         if user_id in stopped:
-            return None
+            continue
         quote = quote_4_user_checker(user_id)
         keyboard = types.InlineKeyboardMarkup()
         key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
