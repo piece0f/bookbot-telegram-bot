@@ -13,14 +13,14 @@ import random
 from threading import Thread
 import pymongo
 
-# built-ins
+# [BUILT-INS]
 token = os.environ.get('TG_TOKEN')
 mongoDB = os.environ.get('mongoDB')
 client = pymongo.MongoClient(f"{mongoDB}")
 DB = client["BookBot"]["quotes_queue"]
 bot = telebot.TeleBot(token)
 
-# variables
+# [VARIABLES]
 stopped = []
 callback_cancel = False
 
@@ -41,7 +41,7 @@ scheduler = AsyncScheduler('Проверка времени')
 scheduler.start()
 
 
-# functional
+# [FUNCTIONAL]
 # on stop
 def stop(message):
     """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
@@ -71,7 +71,12 @@ def resume(message):
 # on help
 def help_command(message):
     """Help with all commands"""
-    commands = '<b>Список команд:\n</b>\n/stop<i> - приостановить рассылку\n</i>\n/resume<i> - возобновить рассылку\n</i>\n/report<i> - сообщить о проблеме или предложении</i>'
+    commands = ('<b>Список команд:\n'
+                '</b>\n/random<i> - случайная цитата в любое время суток\n'
+                '</i>\n/stop<i> - приостановить рассылку\n'
+                '</i>\n/resume<i> - возобновить рассылку\n'
+                '</i>\n/report<i> - сообщить о проблеме или предложении</i>'
+                )
     bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
 
 
@@ -87,47 +92,59 @@ def report(message):
                      reply_markup=keyboard)
 
     
-def quote_4_user_checker(user_id: str):
+def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
     while True:
         quote = DB.find({})[random.randint(0, DB.count_documents({}) - 1)]
-        if user_id not in quote["Users"]:
-            users = quote["Users"] + [user_id]
-            required_quote = quote
-            DB.update_one({"Quote": quote["Quote"]}, {"$set": {"Users": users}})
-            return required_quote
+        if not check:
+            # if check for available is not required return random quote
+            return quote
+        if user_id in quote["Users"]:
+            continue
+        users = quote["Users"] + [user_id]
+        required_quote = quote
+        DB.update_one({"Quote": quote["Quote"]}, {"$set": {"Users": users}})
+        return required_quote
 
 
 def promo():
     """Sends a little promotional message for all users (except my gf)"""
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
-    for id in r:
-        if id == '1103761115':
+    for user_id in r:
+        if user_id == '1103761115':
             continue
-        bot.send_message(id,
+        bot.send_message(user_id,
                          text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
                          parse_mode='HTML', disable_notification=True)
 
 
-def random_quote():
+def random_q(user, checking=False):
+    """ Sends random quote for user.
+        If checking == False, it does not check for the presence of id in the database.
+    """
+    quote = quote_4_user_checker(user, check=checking)
+    keyboard = types.InlineKeyboardMarkup()
+    key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
+    keyboard.add(key_book)
+    #   key_like = types.InlineKeyboardButton(text='Нет', callback_data='no')
+    #   keyboard.add(key_like)
+    bot.send_message(user,
+                     text=f'<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
+                     parse_mode='HTML', reply_markup=keyboard)
+        
+
+def random_quotes():
     """Sends random quote for users who aren't in 'stopped' list"""
     with open('users', 'r') as users_r:
         r = users_r.read().replace('\\n', '').splitlines()
     for user_id in r:
         if user_id in stopped:
             continue
-        quote = quote_4_user_checker(user_id)
-        keyboard = types.InlineKeyboardMarkup()
-        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
-        keyboard.add(key_book)  # добавляем кнопку в клавиатуру
-        #   key_like = types.InlineKeyboardButton(text='Нет', callback_data='no')
-        #   keyboard.add(key_like)
-        bot.send_message(user_id,
-                         text=f'<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
-                         parse_mode='HTML', reply_markup=keyboard)
+        random_q(user_id, True)
+        
 
-
+# problem handler
 def report_send(message):
     global callback_cancel
     if callback_cancel:
@@ -141,6 +158,7 @@ def report_send(message):
                      parse_mode='HTML')
 
 
+# idea handler
 def support_send(message):
     global callback_cancel
     if callback_cancel:
@@ -154,7 +172,7 @@ def support_send(message):
                      parse_mode='HTML')
 
     
-schedule.every().day.at('14:00').do(random_quote)
+schedule.every().day.at('14:00').do(random_quotes)
 schedule.every(2).days.at('16:00').do(promo)
 
 
@@ -167,9 +185,11 @@ def admin(message):
         print('False: Non-admin request')
         return
     if message.text == '/quote':
-        random_quote()
+        random_quotes()
+        print("Succeed")
     elif message.text == '/promo':
         promo()
+        print("Succeed")
     else:
         print('Wrong code')
 
@@ -199,7 +219,7 @@ def start(message):
 
 
 # user commands handler
-@bot.message_handler(commands=['stop','resume', 'help', 'report'])
+@bot.message_handler(commands=['stop','resume', 'help', 'report', 'random'])
 def commands_handler(message):
     command = message.text
     if command == '/stop':
@@ -210,6 +230,8 @@ def commands_handler(message):
         help_command(message)
     elif command == '/report':
         report(message)
+    elif command == '/random':
+        random_q(message.from_user.id, False)
     else:
         print('Wrong code')
 
@@ -255,5 +277,5 @@ def polling():
         polling()
 
 
-# random_quote()
+# random_quotes()
 polling()
