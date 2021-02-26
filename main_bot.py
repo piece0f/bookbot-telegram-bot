@@ -109,16 +109,18 @@ def report(message):
     
 def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
+    if quotes.count_documents({"Users": user_id}) >= 68:
+        # removes user id from DB if there is no more available quotes for user
+        quotes.update_many({"Users": user_id}, {"$pull": {"Users": user_id}})
     while True:
-        quote = quotes.find({})[random.randint(0, quotes.count_documents({}) - 1)]  # DB.count_documents({}) - 1
+        quote = quotes.find({})[random.randint(0, quotes.count_documents({}) - 1)]
         if not check:
             # if check for available is not required return random quote
             return quote
         if user_id in quote["Users"]:
             continue
-        users = quote["Users"] + [user_id]
         required_quote = quote
-        quotes.update_one({"Quote": quote["Quote"]}, {"$set": {"Users": users}})
+        quotes.update_one({"Quote": quote["Quote"]}, {"$push": {"Users": user_id}})
         return required_quote
 
 
