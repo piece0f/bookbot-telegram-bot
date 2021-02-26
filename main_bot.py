@@ -17,11 +17,13 @@ import pymongo
 token = os.environ.get('TG_TOKEN')
 mongoDB = os.environ.get('mongoDB')
 client = pymongo.MongoClient(f"{mongoDB}")
-DB = client["BookBot"]["quotes_queue"]
+quotes = client["BookBot"]["quotes_queue"]
+f = open("stop_list", "r")
+stopped = f.read().splitlines()
+f.close()
 bot = telebot.TeleBot(token)
 
 # [VARIABLES]
-stopped = []
 callback_cancel = False
 
 
@@ -45,12 +47,16 @@ scheduler.start()
 # on stop
 def stop(message):
     """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
-    if message.from_user.id not in stopped:
-        stopped.append(message.from_user.id)
+    global stopped
+    if str(message.from_user.id) not in stopped:
+        with open("stop_list", "a") as stopped_tmp:
+            stopped_tmp.write(f"{message.from_user.id}\n")
+            stopped_tmp.close()
+        stopped.append(str(message.from_user.id))
         bot.send_message(message.from_user.id,
                          '<b>❌ Рассылка цитат приостановлена!\n</b> \nЧтобы возобновить напишите /resume',
                          parse_mode='HTML')
-    elif message.from_user.id in stopped:
+    else:
         bot.send_message(message.from_user.id,
                          '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
                          parse_mode='HTML')
@@ -59,11 +65,20 @@ def stop(message):
 # on resume
 def resume(message):
     """Removes user from 'stopped' list"""
-    if message.from_user.id in stopped:
-        stopped.remove(message.from_user.id)
+    global stopped
+    if str(message.from_user.id) in stopped:
+        with open('stop_list', 'r') as stopped_tmp:
+            print(stopped_tmp)
+            stopped_raw = stopped_tmp.readlines()
+            print(stopped_raw)
+            stopped_raw.remove(str(message.from_user.id) + '\n')
+        with open("stop_list", "w") as tmp:
+            tmp.write(''.join(stopped_raw))
+            tmp.close()
+        stopped.remove(str(message.from_user.id))
         bot.send_message(message.from_user.id, '<b>✔ Рассылка цитат возобновлена!</b>',
                          parse_mode='HTML')
-    elif message.from_user.id not in stopped:
+    else:
         bot.send_message(message.from_user.id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
                          parse_mode='HTML')
 
@@ -95,7 +110,7 @@ def report(message):
 def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
     while True:
-        quote = DB.find({})[random.randint(0, DB.count_documents({}) - 1)]
+        quote = quotes.find({})[random.randint(0, quotes.count_documents({}) - 1)]  # DB.count_documents({}) - 1
         if not check:
             # if check for available is not required return random quote
             return quote
@@ -103,14 +118,14 @@ def quote_4_user_checker(user_id: str, check=True):
             continue
         users = quote["Users"] + [user_id]
         required_quote = quote
-        DB.update_one({"Quote": quote["Quote"]}, {"$set": {"Users": users}})
+        quotes.update_one({"Quote": quote["Quote"]}, {"$set": {"Users": users}})
         return required_quote
 
 
 def promo():
     """Sends a little promotional message for all users (except my gf)"""
     with open('users', 'r') as users_r:
-        r = users_r.read().replace('\\n', '').splitlines()
+        r = users_r.read().splitlines()
     for user_id in r:
         if user_id == '1103761115':
             continue
@@ -137,7 +152,7 @@ def random_q(user, checking=False):
 def random_quotes():
     """Sends random quote for users who aren't in 'stopped' list"""
     with open('users', 'r') as users_r:
-        r = users_r.read().replace('\\n', '').splitlines()
+        r = users_r.read().splitlines()
     for user_id in r:
         if user_id in stopped:
             continue
@@ -199,7 +214,7 @@ def admin(message):
 def start(message):
     """Welcome message, also sends a demo quote"""
     with open('users', 'r') as users_r:
-        r = users_r.read().replace('\\n', '').splitlines()
+        r = users_r.read().splitlines()
     with open('users', 'a') as users_w:
         user_id = message.from_user.id
         bot.send_message(user_id,
@@ -219,7 +234,7 @@ def start(message):
 
 
 # user commands handler
-@bot.message_handler(commands=['stop','resume', 'help', 'report', 'random'])
+@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random'])
 def commands_handler(message):
     command = message.text
     if command == '/stop':
