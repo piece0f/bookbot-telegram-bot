@@ -25,7 +25,7 @@ bot = telebot.TeleBot(token)
 # [VARIABLES]
 with open('users', 'r') as f:
     f = f.read().splitlines()
-    callback_cancel = {user: False for user in f}
+    callback_cancel = {int(user): False for user in f}
 cancel_button = types.InlineKeyboardMarkup()
 key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
 cancel_button.add(key_cancel)
@@ -112,7 +112,7 @@ def report(message):
 
 def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
-    if quotes.count_documents({"Users": user_id}) >= 68:
+    if quotes.count_documents({"Users": user_id}) >= 69:
         # removes user id from DB if there is no more available quotes for user
         quotes.update_many({"Users": user_id}, {"$pull": {"Users": user_id}})
     while True:
@@ -188,7 +188,7 @@ def add_quote(message):
                      ' и будет добавлена в течении 48 часов!</i>',
                      parse_mode='HTML')
     print(f'{message.from_user.id} (@{message.from_user.username}) запросил добавление цитаты!')
-    pass
+    return
 
 
 # problem handler
@@ -245,24 +245,28 @@ def admin(message):
 @bot.message_handler(commands=['start'])
 def start(message):
     """Welcome message, also sends a demo quote"""
+    global callback_cancel
     with open('users', 'r') as users_r:
         r = users_r.read().splitlines()
+    user_id = message.from_user.id
+    bot.send_message(user_id,
+                     '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
+                     parse_mode='HTML')
+    if str(user_id) in r:
+        return
     with open('users', 'a') as users_w:
-        user_id = message.from_user.id
-        bot.send_message(user_id,
-                         '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
-                         parse_mode='HTML')
-        if str(user_id) in r:
-            return
         users_w.write(str(user_id) + '\n')
         print(message.from_user.username)
-        quote = quote_4_user_checker(user_id)
-        keyboard = types.InlineKeyboardMarkup()
-        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
-        keyboard.add(key_book)
-        bot.send_message(user_id,
-                         text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
-                         parse_mode='HTML')
+    quote = quote_4_user_checker(user_id)
+    keyboard = types.InlineKeyboardMarkup()
+    key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
+    keyboard.add(key_book)
+    bot.send_message(user_id,
+                     text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
+                     parse_mode='HTML')
+    with open('users', 'r') as n:
+        n = n.read().splitlines()
+        callback_cancel = {int(user): False for user in n}
 
 
 # user commands handler
@@ -319,7 +323,7 @@ def callback_worker(call):
 
     elif call.data == 'cancel':
         global callback_cancel
-        callback_cancel[call.message.from_user.id] = True
+        callback_cancel[call.message.chat.id] = True
         bot.send_message(call.message.chat.id,
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
@@ -332,7 +336,7 @@ def polling():
     except Exception:
         polling()
 
-        
+
 # with open('users', 'r') as f:
 #     users = f.read().splitlines()
 # for i in users:
