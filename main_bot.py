@@ -25,6 +25,9 @@ bot = telebot.TeleBot(token)
 
 # [VARIABLES]
 callback_cancel = False
+cancel_button = types.InlineKeyboardMarkup()
+key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
+cancel_button.add(key_cancel)
 
 
 # Async thread (time scheduler)
@@ -68,9 +71,7 @@ def resume(message):
     global stopped
     if str(message.from_user.id) in stopped:
         with open('stop_list', 'r') as stopped_tmp:
-            print(stopped_tmp)
             stopped_raw = stopped_tmp.readlines()
-            print(stopped_raw)
             stopped_raw.remove(str(message.from_user.id) + '\n')
         with open("stop_list", "w") as tmp:
             tmp.write(''.join(stopped_raw))
@@ -90,7 +91,8 @@ def help_command(message):
                 '</b>\n/random<i> - случайная цитата в любое время суток\n'
                 '</i>\n/stop<i> - приостановить рассылку\n'
                 '</i>\n/resume<i> - возобновить рассылку\n'
-                '</i>\n/report<i> - сообщить о проблеме или предложении</i>'
+                '</i>\n/report<i> - сообщить о проблеме или предложении\n'
+                '</i>\n/add<i> - предложить свою цитату</i>'
                 )
     bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
 
@@ -106,7 +108,7 @@ def report(message):
     bot.send_message(message.from_user.id, text=f'О чем вы хотите <b>сообщить</b>?', parse_mode='HTML',
                      reply_markup=keyboard)
 
-    
+
 def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
     if quotes.count_documents({"Users": user_id}) >= 68:
@@ -149,7 +151,7 @@ def random_q(user, checking=False):
     bot.send_message(user,
                      text=f'<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
                      parse_mode='HTML', reply_markup=keyboard)
-        
+
 
 def random_quotes():
     """Sends random quote for users who aren't in 'stopped' list"""
@@ -159,7 +161,31 @@ def random_quotes():
         if user_id in stopped:
             continue
         random_q(user_id, True)
-        
+
+
+def add_quote(message):
+    """Adds a quote from user to file, for further verification."""
+    global callback_cancel
+    if callback_cancel:
+        callback_cancel = False
+        return
+    if message.text.count('%') != 2:
+        global cancel_button
+        bot.send_message(message.from_user.id,
+                         '⚠ <b>Неправильный формат!</b>\nОтправьте цитату в таком виде:\n\n'
+                         '<i>текст_цитаты%книга%автор</i>\n\n'
+                         '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        return bot.register_next_step_handler(message, add_quote)
+    with open('quotes_4_add.txt', 'a', encoding='utf-8') as verification:
+        verification.write(message.text + '%\n')
+    bot.send_message(message.from_user.id,
+                     '✔ <i>Спасибо за помощь в развитии бота! Ваша цитата была отправлена на проверку'
+                     'и будет добавлена в течении 48 часов!</i>',
+                     parse_mode='HTML')
+    print(f'{message.from_user.id} (@{message.from_user.username}) запросил добавление цитаты!')
+    pass
+
 
 # problem handler
 def report_send(message):
@@ -188,7 +214,7 @@ def support_send(message):
                      f'✔ <b>Предложение успешно подано на рассмотрение!\n</b>\nСпасибо за Вашу помощь!',
                      parse_mode='HTML')
 
-    
+
 schedule.every().day.at('14:00').do(random_quotes)
 schedule.every(2).days.at('16:00').do(promo)
 
@@ -210,7 +236,7 @@ def admin(message):
     else:
         print('Wrong code')
 
-        
+
 # [START]
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -236,7 +262,7 @@ def start(message):
 
 
 # user commands handler
-@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random'])
+@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add'])
 def commands_handler(message):
     command = message.text
     if command == '/stop':
@@ -249,6 +275,14 @@ def commands_handler(message):
         report(message)
     elif command == '/random':
         random_q(message.from_user.id, False)
+    elif command == '/add':
+        global cancel_button
+        bot.send_message(message.from_user.id,
+                         '📚 Отправьте цитату в таком виде:\n\n'
+                         '<i>текст_цитаты%книга%автор</i>\n\n'
+                         '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        bot.register_next_step_handler(message, add_quote)
     else:
         print('Wrong code')
 
@@ -263,19 +297,17 @@ def get_audio_messages(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
-    keyboard = types.InlineKeyboardMarkup()
-    key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
-    keyboard.add(key_cancel)
+    global cancel_button
     if call.data == "report":
         bot.send_message(call.message.chat.id,
                          '<i>Опишите проблему, Ваше сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
-                         parse_mode='HTML', reply_markup=keyboard)
+                         parse_mode='HTML', reply_markup=cancel_button)
         bot.register_next_step_handler(call.message, report_send)
 
     elif call.data == "support":
         bot.send_message(call.message.chat.id,
                          '<i>Опишите Вашу идею, сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
-                         parse_mode='HTML', reply_markup=keyboard)
+                         parse_mode='HTML', reply_markup=cancel_button)
         bot.register_next_step_handler(call.message, support_send)
 
     elif call.data == 'cancel':
