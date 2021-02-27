@@ -18,13 +18,14 @@ token = os.environ.get('TG_TOKEN')
 mongoDB = os.environ.get('mongoDB')
 client = pymongo.MongoClient(f"{mongoDB}")
 quotes = client["BookBot"]["quotes_queue"]
-f = open("stop_list", "r")
-stopped = f.read().splitlines()
-f.close()
+with open("stop_list", "r") as f:
+    stopped = f.read().splitlines()
 bot = telebot.TeleBot(token)
 
 # [VARIABLES]
-callback_cancel = False
+with open('users', 'r') as f:
+    f = f.read().splitlines()
+    callback_cancel = {user: False for user in f}
 cancel_button = types.InlineKeyboardMarkup()
 key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
 cancel_button.add(key_cancel)
@@ -169,8 +170,8 @@ def random_quotes():
 def add_quote(message):
     """Adds a quote from user to file, for further verification."""
     global callback_cancel
-    if callback_cancel:
-        callback_cancel = False
+    if callback_cancel[message.from_user.id]:
+        callback_cancel[message.from_user.id] = False
         return
     if message.text.count('%') != 2:
         global cancel_button
@@ -184,7 +185,7 @@ def add_quote(message):
         verification.write(message.text + '%\n')
     bot.send_message(message.from_user.id,
                      '✔ <i>Спасибо за помощь в развитии бота! Ваша цитата была отправлена на проверку'
-                     'и будет добавлена в течении 48 часов!</i>',
+                     ' и будет добавлена в течении 48 часов!</i>',
                      parse_mode='HTML')
     print(f'{message.from_user.id} (@{message.from_user.username}) запросил добавление цитаты!')
     pass
@@ -193,8 +194,8 @@ def add_quote(message):
 # problem handler
 def report_send(message):
     global callback_cancel
-    if callback_cancel:
-        callback_cancel = False
+    if callback_cancel[message.from_user.id]:
+        callback_cancel[message.from_user.id] = False
         return
     bot.send_message(977341432,
                      f'❗ <b>Поступила жалоба:\n</b>\n<i>{message.text}\n</i>\nот @{message.from_user.username}',
@@ -207,8 +208,8 @@ def report_send(message):
 # idea handler
 def support_send(message):
     global callback_cancel
-    if callback_cancel:
-        callback_cancel = False
+    if callback_cancel[message.from_user.id]:
+        callback_cancel[message.from_user.id] = False
         return
     bot.send_message(977341432,
                      f'💡 <b>Поступило предложение:\n</b>\n<i>{message.text}\n</i>\nот @{message.from_user.username}',
@@ -318,7 +319,7 @@ def callback_worker(call):
 
     elif call.data == 'cancel':
         global callback_cancel
-        callback_cancel = True
+        callback_cancel[call.message.from_user.id] = True
         bot.send_message(call.message.chat.id,
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
