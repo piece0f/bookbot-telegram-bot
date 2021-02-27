@@ -331,15 +331,18 @@ def polling():
     except Exception:
         polling()
 
-
+        
 # with open('users', 'r') as f:
 #     users = f.read().splitlines()
 # for i in users:
-#     bot.send_message(i,
-#                      '⚠ <b>ВНИМАНИЕ!</b>\n\n'
-#                      'Добавлена новая команда!\n'
-#                      'Добавляйте свои любимые цитаты с помощью /add!',
-#                      parse_mode='HTML')
+#     try:
+#         bot.send_message(i,
+#                          '⚠ <b>ВНИМАНИЕ!</b>\n\n'
+#                          'Добавлена новая команда!\n'
+#                          'Добавляйте свои любимые цитаты с помощью /add!',
+#                          parse_mode='HTML')
+#     except:
+#         continue
 
 # random_quotes()
 polling()
