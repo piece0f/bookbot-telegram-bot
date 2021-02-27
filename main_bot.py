@@ -160,7 +160,10 @@ def random_quotes():
     for user_id in r:
         if user_id in stopped:
             continue
-        random_q(user_id, True)
+        try:
+            random_q(user_id, True)
+        except:
+            continue
 
 
 def add_quote(message):
@@ -274,7 +277,10 @@ def commands_handler(message):
     elif command == '/report':
         report(message)
     elif command == '/random':
-        random_q(message.from_user.id, False)
+        try:
+            random_q(message.from_user.id, False)
+        except:
+            pass
     elif command == '/add':
         global cancel_button
         bot.send_message(message.from_user.id,
@@ -325,6 +331,15 @@ def polling():
     except Exception:
         polling()
 
+
+# with open('users', 'r') as f:
+#     users = f.read().splitlines()
+# for i in users:
+#     bot.send_message(i,
+#                      '⚠ <b>ВНИМАНИЕ!</b>\n\n'
+#                      'Добавлена новая команда!\n'
+#                      'Добавляйте свои любимые цитаты с помощью /add!',
+#                      parse_mode='HTML')
 
 # random_quotes()
 polling()
