@@ -13,6 +13,7 @@ import random
 from threading import Thread
 import pymongo
 
+
 # [BUILT-INS]
 token = os.environ.get('TG_TOKEN')
 mongoDB = os.environ.get('mongoDB')
@@ -21,6 +22,8 @@ quotes = client["BookBot"]["quotes_queue"]
 with open("stop_list", "r") as f:
     stopped = f.read().splitlines()
 bot = telebot.TeleBot(token)
+quotes_amount = quotes.count_documents({})
+
 
 # [VARIABLES]
 with open('users', 'r') as f:
@@ -112,11 +115,12 @@ def report(message):
 
 def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
-    if quotes.count_documents({"Users": user_id}) >= 69:
+    if quotes.count_documents({"Users": user_id}) >= quotes_amount - 1:
         # removes user id from DB if there is no more available quotes for user
         quotes.update_many({"Users": user_id}, {"$pull": {"Users": user_id}})
+    all_quotes = quotes.find({})
     while True:
-        quote = quotes.find({})[random.randint(0, quotes.count_documents({}) - 1)]
+        quote = all_quotes[random.randint(0, quotes_amount - 1)]
         if not check:
             # if check for available is not required return random quote
             return quote
@@ -156,6 +160,8 @@ def random_q(user, checking=False):
 
 def random_quotes():
     """Sends random quote for users who aren't in 'stopped' list"""
+    start_time = time.time()
+    counter = 0
     with open('users', 'r') as users_r:
         r = users_r.read().splitlines()
     for user_id in r:
@@ -163,8 +169,13 @@ def random_quotes():
             continue
         try:
             random_q(user_id, True)
-        except:
-            continue
+            print("Latency: %s seconds" % (time.time() - start_time))
+        except telebot.apihelper.ApiTelegramException as e:
+            print(f"Bad ID ({user_id}):", e)
+        except Exception as e:
+            print(e)
+        finally:
+            counter += 1
 
 
 def add_quote(message):
