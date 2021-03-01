@@ -17,9 +17,12 @@ for quote in quotes_raw:
 
 
 for quote in quotes:
+    print(quote)
     db.insert_one({"Quote": quote[0],
                    "Book": quote[1],
-                   "Author": quote[2],
+                   "Author": '_'.join(quote[2].split()),
                    "URL": quote[3],
                    "Users": []
                    })
+
+print("\nSuccess!")
