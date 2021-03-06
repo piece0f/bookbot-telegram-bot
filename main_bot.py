@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 BookBot is telegram bot, based on telegram API and MongoDB.
-His objective is to send interesting quotes from books to users.
+His objective is to send interesting quotes from books to users0.
 """
 
 import os
@@ -13,7 +13,6 @@ import random
 from threading import Thread
 import pymongo
 
-
 # [BUILT-INS]
 token = os.environ.get('TG_TOKEN')
 mongoDB = os.environ.get('mongoDB')
@@ -22,11 +21,9 @@ quotes = client["BookBot"]["quotes_queue"]
 with open("stop_list", "r") as f:
     stopped = f.read().splitlines()
 bot = telebot.TeleBot(token)
-quotes_amount = quotes.count_documents({})
-
 
 # [VARIABLES]
-with open('users', 'r') as f:
+with open('users0', 'r') as f:
     f = f.read().splitlines()
     callback_cancel = {int(user): False for user in f}
 cancel_button = types.InlineKeyboardMarkup()
@@ -48,6 +45,11 @@ class AsyncScheduler(Thread):
 
 scheduler = AsyncScheduler('Проверка времени')
 scheduler.start()
+
+
+class UserInGroup(Exception):
+    def __init__(self, text='user is already in group.'):
+        self.txt = text
 
 
 # [FUNCTIONAL]
@@ -96,7 +98,8 @@ def help_command(message):
                 '</i>\n/stop<i> - приостановить рассылку\n'
                 '</i>\n/resume<i> - возобновить рассылку\n'
                 '</i>\n/report<i> - сообщить о проблеме или предложении\n'
-                '</i>\n/add<i> - предложить свою цитату</i>'
+                '</i>\n/add<i> - предложить свою цитату\n'
+                '</i>\n/quotes<i> - сменить частоту получения цитат (1 - 14.00, 2 - 12.00 + 20.00)</i>'
                 )
     bot.send_message(message.from_user.id, text=commands, parse_mode='HTML')
 
@@ -113,14 +116,50 @@ def report(message):
                      reply_markup=keyboard)
 
 
+# messages from admin
+def send(user_id, message):
+    """Sends message requested from admin to user"""
+    try:
+        bot.send_message(user_id,
+                         '<b>Сообщение от администрации!</b>\n\n' + message,
+                         parse_mode='HTML'
+                         )
+        print(f'Sent message to {user_id}:\n{message}')
+    except telebot.apihelper.ApiTelegramException as e:
+        print(f"Bad ID ({user_id}):", e)
+    except Exception as e:
+        print(e)
+
+
+# changes user's time for quote
+def change_group(user_id, group):
+    before = 0
+    for i in range(1, 3):
+        with open(f'users{i}', 'r') as file_read:
+            group_list = file_read.readlines()
+            if user_id + '\n' in group_list and i == group:
+                raise UserInGroup()
+        if user_id + '\n' in group_list:
+            group_list.remove(user_id + '\n')
+            before = i
+            with open(f'users{i}', 'w') as file_write:
+                file_write.write(''.join(group_list))
+        elif i == group:
+            group_list.append(user_id + '\n')
+            with open(f'users{i}', 'w') as file_write:
+                file_write.write(''.join(group_list))
+    print(f'{user_id} changed his group from {before} to {group}.')
+
+
 def quote_4_user_checker(user_id: str, check=True):
     """Checks for quote available for {user}"""
-    if quotes.count_documents({"Users": user_id}) >= quotes_amount - 1:
+    est_quotes = quotes.estimated_document_count()
+    if quotes.count_documents({"Users": user_id}) >= est_quotes - 1:
         # removes user id from DB if there is no more available quotes for user
         quotes.update_many({"Users": user_id}, {"$pull": {"Users": user_id}})
     all_quotes = quotes.find({})
     while True:
-        quote = all_quotes[random.randint(0, quotes_amount - 1)]
+        quote = all_quotes[random.randint(0, est_quotes - 1)]
         if not check:
             # if check for available is not required return random quote
             return quote
@@ -132,8 +171,8 @@ def quote_4_user_checker(user_id: str, check=True):
 
 
 def promo():
-    """Sends a little promotional message for all users (except my gf)"""
-    with open('users', 'r') as users_r:
+    """Sends a little promotional message for all users0 (except my gf)"""
+    with open('users0', 'r') as users_r:
         r = users_r.read().splitlines()
     for user_id in r:
         if user_id == '1103761115':
@@ -158,18 +197,18 @@ def random_q(user, checking=False):
                      parse_mode='HTML', reply_markup=keyboard)
 
 
-def random_quotes():
-    """Sends random quote for users who aren't in 'stopped' list"""
+def random_quotes(group: int):
+    """Sends random quote for users0 who aren't in 'stopped' list"""
     start_time = time.time()
     counter = 0
-    with open('users', 'r') as users_r:
+    with open(f'users0{group}', 'r') as users_r:
         r = users_r.read().splitlines()
     for user_id in r:
         if user_id in stopped:
             continue
         try:
             random_q(user_id, True)
-            print("Latency: %s seconds" % (time.time() - start_time))
+            print(f"Latency #{counter}: {str(time.time() - start_time)[:4]} seconds")
         except telebot.apihelper.ApiTelegramException as e:
             print(f"Bad ID ({user_id}):", e)
         except Exception as e:
@@ -230,24 +269,30 @@ def support_send(message):
                      parse_mode='HTML')
 
 
-schedule.every().day.at('14:00').do(random_quotes)
+schedule.every().day.at('14:00').do(random_quotes, group=1)
+schedule.every().day.at('12:00').do(random_quotes, group=2)
+schedule.every().day.at('20:00').do(random_quotes, group=2)
+
 schedule.every(2).days.at('16:00').do(promo)
 
 
 # [ADMIN]
-@bot.message_handler(commands=['quote', 'promo'])
+@bot.message_handler(commands=['quote', 'promo', 'send'])
 def admin(message):
     """Admin message handler, answers on admin requests"""
     print('Admin command execution...')
     if message.from_user.id != 977341432:
         print('False: Non-admin request')
         return
-    if message.text == '/quote':
-        random_quotes()
+    if message.text.startswith('/quote'):
+        random_quotes(0)
         print("Succeed")
-    elif message.text == '/promo':
+    elif message.text.startswith('/promo'):
         promo()
         print("Succeed")
+    elif message.text.startswith('/send'):
+        command = message.text.split()[1:]
+        send(command[0], ' '.join(command[1:]))
     else:
         print('Wrong code')
 
@@ -257,7 +302,7 @@ def admin(message):
 def start(message):
     """Welcome message, also sends a demo quote"""
     global callback_cancel
-    with open('users', 'r') as users_r:
+    with open('users0', 'r') as users_r:
         r = users_r.read().splitlines()
     user_id = message.from_user.id
     bot.send_message(user_id,
@@ -265,7 +310,7 @@ def start(message):
                      parse_mode='HTML')
     if str(user_id) in r:
         return
-    with open('users', 'a') as users_w:
+    with open('users0', 'a') as users_w:
         users_w.write(str(user_id) + '\n')
         print(message.from_user.username)
     quote = quote_4_user_checker(user_id)
@@ -275,13 +320,13 @@ def start(message):
     bot.send_message(user_id,
                      text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
                      parse_mode='HTML')
-    with open('users', 'r') as n:
+    with open('users0', 'r') as n:
         n = n.read().splitlines()
         callback_cancel = {int(user): False for user in n}
 
 
 # user commands handler
-@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add'])
+@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add', 'quotes'])
 def commands_handler(message):
     command = message.text
     if command == '/stop':
@@ -290,6 +335,30 @@ def commands_handler(message):
         resume(message)
     elif command == '/help':
         help_command(message)
+    elif command.startswith('/quotes'):
+        if len(command.split()) == 1:
+            bot.send_message(message.from_user.id,
+                             '<b>Смена частоты получения цитат:</b>\n\n'
+                             '<i>/quotes N\n'
+                             'N - число от 1 до 2 (1 - 14.00, 2 - 12.00 + 20.00)</i>',
+                             parse_mode='HTML')
+            return
+        try:
+            queried_group = int(command[-1])
+            if queried_group not in (1, 2):
+                raise ValueError(f'wrong group number - {queried_group}')
+            change_group(str(message.from_user.id), queried_group)
+            bot.send_message(message.from_user.id,
+                             '✔ <b>Вы успешно сменили группу!</b>',
+                             parse_mode='HTML')
+        except ValueError:
+            bot.send_message(message.from_user.id,
+                             '⚠ <b>Неправильный формат!</b>\n\n<i>Группа должна быть числом от 1 до 2!</i>',
+                             parse_mode='HTML')
+        except UserInGroup:
+            bot.send_message(message.from_user.id,
+                             '⚠ <b>Вы уже находитесь в этой группе!</b>',
+                             parse_mode='HTML')
     elif command == '/report':
         report(message)
     elif command == '/random':
@@ -348,17 +417,19 @@ def polling():
         polling()
 
 
-# with open('users', 'r') as f:
-#     users = f.read().splitlines()
-# for i in users:
+# with open('users0', 'r') as f:
+#     users0 = f.read().splitlines()
+# for _ in users0:
 #     try:
-#         bot.send_message(i,
+#         bot.send_message(_,
 #                          '⚠ <b>ВНИМАНИЕ!</b>\n\n'
 #                          'Добавлена новая команда!\n'
-#                          'Добавляйте свои любимые цитаты с помощью /add!',
+#                          'Чтобы получать 2 цитаты в день, напишите /quotes 2! Подробнее о команде в /help',
 #                          parse_mode='HTML')
 #     except:
 #         continue
 
 # random_quotes()
+
+
 polling()
