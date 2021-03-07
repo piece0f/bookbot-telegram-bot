@@ -201,7 +201,7 @@ def random_quotes(group: int):
     """Sends random quote for users0 who aren't in 'stopped' list"""
     start_time = time.time()
     counter = 0
-    with open(f'users0{group}', 'r') as users_r:
+    with open(f'users{group}', 'r') as users_r:
         r = users_r.read().splitlines()
     for user_id in r:
         if user_id in stopped:
@@ -293,6 +293,7 @@ def admin(message):
     elif message.text.startswith('/send'):
         command = message.text.split()[1:]
         send(command[0], ' '.join(command[1:]))
+        print("Succeed")
     else:
         print('Wrong code')
 
@@ -310,9 +311,10 @@ def start(message):
                      parse_mode='HTML')
     if str(user_id) in r:
         return
-    with open('users0', 'a') as users_w:
+    with open('users0', 'a') as users_w, open('users1', 'a') as users_w2:
         users_w.write(str(user_id) + '\n')
-        print(message.from_user.username)
+        users_w2.write(str(user_id) + '\n')
+        print(message.from_user.username, 'connected to bot.')
     quote = quote_4_user_checker(user_id)
     keyboard = types.InlineKeyboardMarkup()
     key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
@@ -320,9 +322,7 @@ def start(message):
     bot.send_message(user_id,
                      text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
                      parse_mode='HTML')
-    with open('users0', 'r') as n:
-        n = n.read().splitlines()
-        callback_cancel = {int(user): False for user in n}
+    callback_cancel.update({int(message.from_user.id): False})
 
 
 # user commands handler
@@ -429,7 +429,6 @@ def polling():
 #     except:
 #         continue
 
-# random_quotes()
-
+# random_quotes(1)
 
 polling()
