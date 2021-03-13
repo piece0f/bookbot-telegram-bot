@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 BookBot is telegram bot, based on telegram API and MongoDB.
-His objective is to send interesting quotes from books to users0.
+His objective is to send interesting quotes from books to users.
 """
 
 import os
@@ -12,6 +12,7 @@ import time
 import random
 from threading import Thread
 import pymongo
+from datetime import datetime
 
 # [BUILT-INS]
 token = os.environ.get('TG_TOKEN')
@@ -24,8 +25,8 @@ bot = telebot.TeleBot(token)
 
 # [VARIABLES]
 with open('users0', 'r') as f:
-    f = f.read().splitlines()
-    callback_cancel = {int(user): False for user in f}
+    file = f.read().splitlines()
+    callback_cancel = {int(user): False for user in file}
 cancel_button = types.InlineKeyboardMarkup()
 key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
 cancel_button.add(key_cancel)
@@ -53,6 +54,12 @@ class UserInGroup(Exception):
 
 
 # [FUNCTIONAL]
+def get_key(d: dict, value):
+    for k, v in d.items():
+        if v == value:
+            return k
+
+
 # on stop
 def stop(message):
     """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
@@ -117,16 +124,24 @@ def report(message):
 
 
 # messages from admin
-def send(user_id, message):
+def send(user: str, message):
     """Sends message requested from admin to user"""
     try:
+        user_id = user
+        if not user.isdigit():
+            with open('users', 'r') as _:
+                _ = _.read().splitlines()
+                for i in range(len(_)):
+                    _[i] = tuple(_[i].split(', '))
+                nicknames = dict(_)
+            user_id = nicknames[user]
         bot.send_message(user_id,
-                         '<b>Сообщение от администрации!</b>\n\n' + message,
+                         f'<b>Сообщение от администрации!</b>\n\n<i>{message}</i>',
                          parse_mode='HTML'
                          )
         print(f'Sent message to {user_id}:\n{message}')
     except telebot.apihelper.ApiTelegramException as e:
-        print(f"Bad ID ({user_id}):", e)
+        print(f"Bad USER ({user}):", e)
     except Exception as e:
         print(e)
 
@@ -171,9 +186,9 @@ def quote_4_user_checker(user_id: str, check=True):
 
 
 def promo():
-    """Sends a little promotional message for all users0 (except my gf)"""
-    with open('users0', 'r') as users_r:
-        r = users_r.read().splitlines()
+    """Sends a little promotional message for all users (except my gf)"""
+    with open('users0', 'r') as _:
+        r = _.read().splitlines()
     for user_id in r:
         if user_id == '1103761115':
             continue
@@ -198,11 +213,12 @@ def random_q(user, checking=False):
 
 
 def random_quotes(group: int):
-    """Sends random quote for users0 who aren't in 'stopped' list"""
+    """Sends random quote for users who aren't in 'stopped' list"""
     start_time = time.time()
     counter = 0
     with open(f'users{group}', 'r') as users_r:
         r = users_r.read().splitlines()
+    print("=================================")
     for user_id in r:
         if user_id in stopped:
             continue
@@ -277,15 +293,15 @@ schedule.every(2).days.at('16:00').do(promo)
 
 
 # [ADMIN]
-@bot.message_handler(commands=['quote', 'promo', 'send'])
+@bot.message_handler(commands=['gift', 'promo', 'send'])
 def admin(message):
     """Admin message handler, answers on admin requests"""
     print('Admin command execution...')
     if message.from_user.id != 977341432:
         print('False: Non-admin request')
         return
-    if message.text.startswith('/quote'):
-        random_quotes(0)
+    if message.text.startswith('/gift'):
+        random_quotes(int(message.text[-1]))
         print("Succeed")
     elif message.text.startswith('/promo'):
         promo()
@@ -303,17 +319,18 @@ def admin(message):
 def start(message):
     """Welcome message, also sends a demo quote"""
     global callback_cancel
-    with open('users0', 'r') as users_r:
-        r = users_r.read().splitlines()
+    with open('users0', 'r') as _:
+        r = _.read().splitlines()
     user_id = message.from_user.id
     bot.send_message(user_id,
                      '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
                      parse_mode='HTML')
     if str(user_id) in r:
         return
-    with open('users0', 'a') as users_w, open('users1', 'a') as users_w2:
-        users_w.write(str(user_id) + '\n')
-        users_w2.write(str(user_id) + '\n')
+    with open('users0', 'a') as users_w1, open('users1', 'a') as users_w2, open('users', 'a') as users_w:
+        users_w.write(f'{message.from_user.username}, {user_id}\n')
+        users_w1.write(f'{user_id}\n')
+        users_w2.write(f'{user_id}\n')
         print(message.from_user.username, 'connected to bot.')
     quote = quote_4_user_checker(user_id)
     keyboard = types.InlineKeyboardMarkup()
@@ -413,7 +430,8 @@ def polling():
     try:
         bot.polling(none_stop=True, interval=1)
     # noinspection PyBroadException
-    except Exception:
+    except Exception as e:
+        print(datetime.now().time(), '- Connection ERROR:', e)
         polling()
 
 
@@ -429,6 +447,6 @@ def polling():
 #     except:
 #         continue
 
-# random_quotes(1)
+# random_quotes(2)
 
 polling()
