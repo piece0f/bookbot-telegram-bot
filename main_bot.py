@@ -29,6 +29,9 @@ with open('users/users0', 'r') as f:
 cancel_button = types.InlineKeyboardMarkup()
 key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
 cancel_button.add(key_cancel)
+cur = sql.cursor()
+cur.execute("SELECT count(id) FROM users;")
+est_quotes = int(cur.fetchone()[0])
 
 
 # [CLASSES]
@@ -48,7 +51,6 @@ class Quote:
     """Class for quotes and everything about them"""
 
     def __init__(self):
-        self.db = client["BookBot"]["quotes_queue"]
         with open("users/stop_list", "r") as _:
             self.stopped = _.read().splitlines()
 
@@ -83,13 +85,12 @@ class Quote:
 
     def check(self, user: str, check=True) -> dict:
         """Checks for quote available for {user}"""
-        est_quotes = self.db.estimated_document_count()
-        if self.db.count_documents({"Users": user}) >= est_quotes - 1:
+        cur.execute("SELECT count(id) FROM users;")
+        if cur.fetchone()[0] >= est_quotes - 1:
             # removes user id from DB if there is no more available quotes for user
-            self.db.update_many({"Users": user}, {"$pull": {"Users": user}})
-        all_quotes = self.db.find({})
+            cur.execute(f"DELETE id FROM users WHERE id = '{user}'")
         while True:
-            quote = all_quotes[random.randint(0, est_quotes - 1)]
+            cur.execute("SELECT count(id) FROM users;")
             if not check:
                 # if check for available is not required return random quote
                 return quote
