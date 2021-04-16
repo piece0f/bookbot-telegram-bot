@@ -1,12 +1,15 @@
 main_bot [BETA].py
-quotes.py
+authors
+admin
+admin/connection_log.txt
+admin/quotes.py
+admin/quotes_4_add.txt
 users
-users0
-users1
-users2
-stop_list
-quotes_4_add.txt
-test
-test.py
-/.idea
+users/deleter.py
+users/stop_list
+users/users.txt
+users/users0
+users/users1
+users/users2
 /__pycache__
+/.idea
