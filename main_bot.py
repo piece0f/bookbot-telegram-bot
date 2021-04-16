@@ -11,15 +11,15 @@ import traceback
 from datetime import datetime
 from threading import Thread
 
-import pymongo
+import pymysql
 import schedule
 import telebot
 from telebot import types
 
 # [BUILT-INS]
-token = os.environ.get('TG_TOKEN')
-mongoDB = os.environ.get('mongoDB')
-client = pymongo.MongoClient(f"{mongoDB}")
+token = os.environ.get("TG_TOKEN")
+secret = os.environ.get('SQL_ROOT_PASSWORD')
+sql = pymysql.connect(host='localhost', user='root', password=secret, database='mydb')
 bot = telebot.TeleBot(token)
 
 # [VARIABLES]
@@ -46,6 +46,7 @@ class AsyncScheduler(Thread):
 
 class Quote:
     """Class for quotes and everything about them"""
+
     def __init__(self):
         self.db = client["BookBot"]["quotes_queue"]
         with open("users/stop_list", "r") as _:
