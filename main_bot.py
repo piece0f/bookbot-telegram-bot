@@ -19,19 +19,15 @@ from telebot import types
 # [BUILT-INS]
 token = os.environ.get("TG_TOKEN")
 secret = os.environ.get('SQL_ROOT_PASSWORD')
-sql = pymysql.connect(host='localhost', user='root', password=secret, database='mydb')
+sql = pymysql.connect(host='localhost', user='root', password=secret, database='bookbot')
 bot = telebot.TeleBot(token)
 
 # [VARIABLES]
-with open('users/users0', 'r') as f:
-    file = f.read().splitlines()
-    callback_cancel = {int(user): False for user in file}
 cancel_button = types.InlineKeyboardMarkup()
 key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
 cancel_button.add(key_cancel)
 cur = sql.cursor()
-cur.execute("SELECT count(id) FROM users;")
-est_quotes = int(cur.fetchone()[0])
+callback_cancel = {}
 
 
 # [CLASSES]
@@ -51,65 +47,64 @@ class Quote:
     """Class for quotes and everything about them"""
 
     def __init__(self):
-        with open("users/stop_list", "r") as _:
-            self.stopped = _.read().splitlines()
+        with cur:
+            cur.execute("SELECT count(id) FROM quotes;")
+            self.est_quotes = int(cur.fetchone()[0])
 
-    def stop(self, message):
-        """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
-        if str(message.chat.id) not in self.stopped:
-            with open("users/stop_list", "a") as stopped_tmp:
-                stopped_tmp.write(f"{message.chat.id}\n")
-            self.stopped.append(str(message.chat.id))
-            bot.send_message(message.chat.id,
+    def stop(self, chat_id):
+        """Moves chat to 'stopped' list, so he won't receive scheduled quotes"""
+        with cur:
+            cur.execute(f"SELECT stopped FROM users WHERE id = '{chat_id}'")
+        if cur.fetchone()[0] == 0:
+            with cur:
+                cur.execute(f"UPDATE users SET stopped = 1 WHERE id = '{chat_id}'")
+            bot.send_message(chat_id,
                              '<b>❌ Рассылка цитат приостановлена!\n</b> \nЧтобы возобновить напишите /resume',
                              parse_mode='HTML')
         else:
-            bot.send_message(message.chat.id,
+            bot.send_message(chat_id,
                              '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
                              parse_mode='HTML')
 
-    def resume(self, message):
+    def resume(self, chat_id):
         """Removes user from 'stopped' list"""
-        if str(message.chat.id) in self.stopped:
-            with open('users/stop_list', 'r') as stopped_tmp:
-                stopped_raw = stopped_tmp.readlines()
-                stopped_raw.remove(str(message.chat.id) + '\n')
-            with open("users/stop_list", "w") as _:
-                _.write(''.join(stopped_raw))
-            self.stopped.remove(str(message.chat.id))
-            bot.send_message(message.chat.id, '<b>✔ Рассылка цитат возобновлена!</b>',
-                             parse_mode='HTML')
-        else:
-            bot.send_message(message.chat.id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
-                             parse_mode='HTML')
+        with cur:
+            cur.execute(f"SELECT stopped FROM users WHERE id = '{chat_id}'")
+            if cur.fetchone()[0] == 1:
+                cur.execute(f"UPDATE users SET stopped = 0 WHERE id = '{chat_id}'")
+                bot.send_message(chat_id, '<b>✔ Рассылка цитат возобновлена!</b>',
+                                 parse_mode='HTML')
+            else:
+                bot.send_message(chat_id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
+                                 parse_mode='HTML')
 
-    def check(self, user: str, check=True) -> dict:
+    def check(self, user: str, check=True) -> tuple:
         """Checks for quote available for {user}"""
-        cur.execute("SELECT count(id) FROM users;")
-        if cur.fetchone()[0] >= est_quotes - 1:
-            # removes user id from DB if there is no more available quotes for user
-            cur.execute(f"DELETE id FROM users WHERE id = '{user}'")
-        while True:
-            cur.execute("SELECT count(id) FROM users;")
-            if not check:
-                # if check for available is not required return random quote
+        with cur:
+            cur.execute(f"SELECT used_quotes FROM quotes_query WHERE user_id = '{user}'")
+            used_q = cur.fetchone()[0]
+            if len(used_q) >= 150:
+                # removes user id from DB if there is no more available quotes for user
+                cur.execute(f"UPDATE quotes_query SET used_quotes = null WHERE user_id = '{user}'")
+            while True:
+                number = str(random.randint(0, self.est_quotes))
+                if check and number in used_q.split():
+                    continue
+                cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
+                quote = cur.fetchone()
+                cur.execute(f"UPDATE quotes_query SET used_quotes = \'{used_q+number+' '}\'")
                 return quote
-            if user in quote["Users"]:
-                continue
-            required_quote = quote
-            self.db.update_one({"Quote": quote["Quote"]}, {"$push": {"Users": user}})
-            return required_quote
 
-    def random(self, user, checking=False):
+    def random(self, user: str, checking=False):
         """ Sends random quote for user.
             If checking == False, it does not check for the presence of id in the database.
         """
         quo = self.check(user, check=checking)
         keyboard = types.InlineKeyboardMarkup()
-        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quo["URL"])
+        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quo[4])
         keyboard.add(key_book)
         bot.send_message(user,
-                         text=f'<i>{quo["Quote"]}\n</i>\n<b>{quo["Book"]}</b>\n#{quo["Author"]}',
+                         text=f'<i>{quo[1]}\n</i>\n<b>{quo[2]}</b>\n#{quo[3]}',
                          parse_mode='HTML', reply_markup=keyboard)
 
     def randoms(self, group: int):
@@ -118,14 +113,12 @@ class Quote:
         counter = 0
         r = read_users(group)
         print("=================================")
-        for user_id in r:
-            if user_id in self.stopped:
-                continue
+        for user in r:
             try:
-                self.random(str(user_id), True)
+                self.random(user[0], True)
                 print(f"Latency #{counter}: {str(time.time() - start_time)[:4]} seconds")
             except telebot.apihelper.ApiTelegramException as user_e:
-                print(f"Bad ID ({user_id}):", user_e)
+                print(f"Bad ID ({user[0]}):", user_e)
             except Exception:
                 traceback.print_exc()
             finally:
@@ -134,7 +127,7 @@ class Quote:
     def add(self, message):
         """Adds a quote from user to file, for further verification."""
         global callback_cancel
-        if callback_cancel[message.chat.id]:
+        if callback_cancel.get(message.chat.id):
             callback_cancel[message.chat.id] = False
             return
         if message.text.count('%') != 2:
@@ -172,15 +165,21 @@ schedule.every().day.at('20:00').do(quotes.randoms, group=2)
 
 
 # [FUNCTIONAL]
-def read_users(group=-1, raw=False):
+def read_users(group=-1, names=False, stopped=False) -> tuple[tuple]:
     """Reading users from db"""
-    group = '.txt' if group == -1 else group
-    with open(f'users/users{group}', 'r') as users_r:
-        r = users_r.readlines() if raw else users_r.read().splitlines()
+    with cur:
+        if stopped:
+            command = f"SELECT {'username, ' if names else ''}id FROM users" \
+                      f"{f' WHERE group_number = {group}' if group != -1 else ''};"
+        else:
+            command = f"SELECT {'username, ' if names else ''}id FROM users WHERE stopped = 0" \
+                      f"{f' AND group_number = {group}' if group != -1 else ''};"
+        cur.execute(command)
+        r = cur.fetchall()
     return r
 
 
-def help_command(message):
+def help_command(chat_id):
     """Help with all commands"""
     commands = ('<b>Список команд:\n'
                 '</b>\n/random<i> - случайная цитата в любое время суток\n'
@@ -190,7 +189,7 @@ def help_command(message):
                 '</i>\n/add<i> - предложить свою цитату\n'
                 '</i>\n/quotes<i> - сменить частоту получения цитат</i>'
                 )
-    bot.send_message(message.chat.id, text=commands, parse_mode='HTML')
+    bot.send_message(chat_id, text=commands, parse_mode='HTML')
 
 
 def report(message):
@@ -213,11 +212,8 @@ def send(user: str, message):
     try:
         user_id = user
         if not user.isdigit():
-            users_list = read_users()
-            for i in range(len(users_list)):
-                users_list[i] = tuple(users_list[i].split(', '))
-            nicknames = dict(users_list)  # Idk what pycharm wants from me, but it highlights users_lst
-            user_id = nicknames[user]
+            users_list = dict(read_users(names=True, stopped=True))
+            user_id = users_list[user]
         bot.send_message(user_id,
                          f'<b>Сообщение от администрации!</b>\n\n<i>{message}</i>',
                          parse_mode='HTML'
@@ -232,19 +228,10 @@ def send(user: str, message):
 def change_group(chat_id, group: int):
     """Changes user's time for quote"""
     before = 0
-    for i in range(1, 3):
-        group_list = read_users(i, True)
-        if chat_id + '\n' in group_list:
-            if i == group:
-                raise UserInGroup()
-            group_list.remove(chat_id + '\n')
-            before = i
-            with open(f'users{i}', 'w') as file_write:
-                file_write.write(''.join(group_list))
-        elif i == group:
-            group_list.append(chat_id + '\n')
-            with open(f'users{i}', 'w') as file_write:
-                file_write.write(''.join(group_list))
+    read user
+    check group
+    if group != before:
+        change group
     print(f'{chat_id} changed his group from {before} to {group}.')
 
 
@@ -269,7 +256,7 @@ schedule.every(2).days.at('16:00').do(promo)
 # problem handler
 def report_send(message):
     global callback_cancel
-    if callback_cancel[message.chat.id]:
+    if callback_cancel.get(message.chat.id):
         callback_cancel[message.chat.id] = False
         return
     bot.send_message(977341432,
@@ -283,7 +270,7 @@ def report_send(message):
 # idea handler
 def support_send(message):
     global callback_cancel
-    if callback_cancel[message.chat.id]:
+    if callback_cancel.get(message.chat.id):
         callback_cancel[message.chat.id] = False
         return
     bot.send_message(977341432,
@@ -319,7 +306,6 @@ def admin(message):
 # [START]
 @bot.message_handler(commands=['start'])
 def start(message):
-    global callback_cancel
     r = read_users(0)
     chat_id = message.chat.id
     bot.send_message(chat_id,
@@ -341,7 +327,6 @@ def start(message):
     bot.send_message(chat_id,
                      text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
                      parse_mode='HTML')
-    callback_cancel.update({int(message.chat.id): False})
 
 
 # user commands handler
@@ -349,11 +334,11 @@ def start(message):
 def commands_handler(message):
     command = message.text
     if command.startswith('/stop'):
-        quotes.stop(message)
+        quotes.stop(message.chat.id)
     elif command.startswith('/resume'):
-        quotes.resume(message)
+        quotes.resume(message.chat.id)
     elif command.startswith('/help'):
-        help_command(message)
+        help_command(message.chat.id)
     elif command.startswith('/quotes'):
         group = types.InlineKeyboardMarkup()
         group.add(types.InlineKeyboardButton(text='14.00 (UTC+6)', callback_data='1'))
@@ -410,7 +395,7 @@ def callback_worker(call):
             print(other_e)
     elif call.data == 'cancel':
         global callback_cancel
-        callback_cancel[call.message.chat.id] = True
+        callback_cancel.update({call.message.chat.id: True})
         bot.send_message(call.message.chat.id,
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
