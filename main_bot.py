@@ -422,7 +422,7 @@ while True:
         bot.polling(none_stop=True, interval=1)
     except Exception as e:
         try_count += 1 if time.time() - last_exc < 15 else -try_count
-        with open("admin/connection_log.txt", "a") as dump:
-            dump.write(f'{datetime.now().time()} - Connection ERROR: {e}\n')
+        with cur:
+            cur.execute(f'INSERT INTO bot_errors(reason, full_error) VALUES ("{e}", "{traceback.format_exc()}")')
         last_exc = time.time()
         print("Reconnecting:", try_count)
