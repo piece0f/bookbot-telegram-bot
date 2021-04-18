@@ -91,7 +91,7 @@ class Quote:
                     continue
                 cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
                 quote = cur.fetchone()
-                cur.execute(f"UPDATE quotes_query SET used_quotes = \'{used_q+number+' '}\'")
+                cur.execute(f"UPDATE quotes_query SET used_quotes = '{used_q+number+' '}' WHERE user_id = '{user}'")
                 return quote
 
     def random(self, user: str, checking=False):
