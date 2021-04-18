@@ -83,6 +83,8 @@ class Quote:
             if len(used_q) >= 255:
                 # removes user id from DB if there is no more available quotes for user
                 cur.execute(f"UPDATE quotes_query SET used_quotes = null WHERE user_id = '{user}'")
+            if used_q == ' ':
+                used_q = ''
             while True:
                 number = str(random.randint(1, self.est_quotes))
                 if check and number in used_q.split():
