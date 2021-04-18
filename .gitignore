@@ -1,14 +1,3 @@
-authors
 admin
-admin/connection_log.txt
-admin/quotes.py
-admin/quotes_4_add.txt
-users
-users/deleter.py
-users/stop_list
-users/users.txt
-users/users0
-users/users1
-users/users2
 /__pycache__
 /.idea
