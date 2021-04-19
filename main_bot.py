@@ -18,8 +18,14 @@ from telebot import types
 # [BUILT-INS]
 token = os.environ.get("TG_TOKEN")
 secret = os.environ.get('SQL_ROOT_PASSWORD')
-sql = pymysql.connect(host='localhost', user='root', password=secret, database='bookbot', autocommit=True)
 bot = telebot.TeleBot(token)
+
+
+def init_sql():
+    global sql
+    sql = pymysql.connect(host='localhost', user='root', password=secret, database='bookbot', autocommit=True)
+    sql.cursor().execute("SELECT * FROM wake_up;")
+
 
 # [VARIABLES]
 cancel_button = types.InlineKeyboardMarkup()
@@ -91,7 +97,7 @@ class Quote:
                     continue
                 cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
                 quote = cur.fetchone()
-                cur.execute(f"UPDATE quotes_query SET used_quotes = '{used_q+number+' '}' WHERE user_id = '{user}'")
+                cur.execute(f"UPDATE quotes_query SET used_quotes = '{used_q + number + ' '}' WHERE user_id = '{user}'")
                 return quote
 
     def random(self, user: str, checking=False):
@@ -157,10 +163,12 @@ try:
     scheduler.start()
 except Exception as e:
     traceback.print_exc()
+init_sql()
 quotes = Quote()
 schedule.every().day.at('14:00').do(quotes.randoms, group=1)
 schedule.every().day.at('12:00').do(quotes.randoms, group=2)
 schedule.every().day.at('20:00').do(quotes.randoms, group=2)
+schedule.every(23).minutes.do(init_sql)
 
 
 # [FUNCTIONAL]
@@ -316,7 +324,8 @@ def start(message):
         check = cur.execute(f"SELECT id FROM users WHERE id = '{chat_id}'")
         if check:
             return
-        cur.execute(f'INSERT INTO users(username, id) VALUES ("{message.chat.username or message.chat.title}", "{chat_id}");')
+        cur.execute(
+            f'INSERT INTO users(username, id) VALUES ("{message.chat.username or message.chat.title}", "{chat_id}");')
         print(message.chat.username or message.chat.title, 'connected to bot.')
     quote = quotes.check(str(chat_id))
     keyboard = types.InlineKeyboardMarkup()
@@ -415,10 +424,12 @@ try_count = 1
 last_exc = time.time()
 while True:
     try:
+        init_sql()
         bot.polling(none_stop=True, interval=1)
     except Exception as e:
         try_count += 1 if time.time() - last_exc < 15 else -try_count
         with open("admin/connection_log.txt", "a") as dump:
             dump.write("==============================\nConnection ERROR: " + traceback.format_exc())
         last_exc = time.time()
+
         print("Reconnecting:", try_count)
