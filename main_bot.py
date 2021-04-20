@@ -23,8 +23,10 @@ bot = telebot.TeleBot(token)
 
 def init_sql():
     global sql
+    sql.close()
     sql = pymysql.connect(host='localhost', user='root', password=secret, database='bookbot', autocommit=True)
     sql.cursor().execute("SELECT * FROM wake_up;")
+    sql.cursor().close()
 
 
 # [VARIABLES]
@@ -54,6 +56,7 @@ class Quote:
         with sql.cursor() as cur:
             cur.execute("SELECT count(id) FROM quotes;")
             self.est_quotes = int(cur.fetchone()[0])
+            cur.close()
 
     def stop(self, chat_id):
         """Moves chat to 'stopped' list, so he won't receive scheduled quotes"""
@@ -68,6 +71,7 @@ class Quote:
                 bot.send_message(chat_id,
                                  '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
                                  parse_mode='HTML')
+            cur.close()
 
     def resume(self, chat_id):
         """Removes user from 'stopped' list"""
@@ -80,6 +84,7 @@ class Quote:
             else:
                 bot.send_message(chat_id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
                                  parse_mode='HTML')
+            cur.close()
 
     def check(self, user: str, check=True) -> tuple:
         """Checks for quote available for {user}"""
@@ -98,6 +103,7 @@ class Quote:
                 cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
                 quote = cur.fetchone()
                 cur.execute(f"UPDATE quotes_query SET used_quotes = '{used_q + number + ' '}' WHERE user_id = '{user}'")
+                cur.close()
                 return quote
 
     def random(self, user: str, checking=False):
@@ -168,7 +174,7 @@ quotes = Quote()
 schedule.every().day.at('14:00').do(quotes.randoms, group=1)
 schedule.every().day.at('12:00').do(quotes.randoms, group=2)
 schedule.every().day.at('20:00').do(quotes.randoms, group=2)
-schedule.every(23).minutes.do(init_sql)
+schedule.every(20).minutes.do(init_sql)
 
 
 # [FUNCTIONAL]
@@ -183,6 +189,7 @@ def read_users(group=-1, names=False, stopped=False) -> tuple[tuple]:
                       f"{f' AND group_number = {group}' if group != -1 else ''};"
         cur.execute(command)
         r = cur.fetchall()
+        cur.close()
     return r
 
 
@@ -244,6 +251,7 @@ def change_group(chat_id, group: int):
             print(f'{chat_id} changed his group from {before} to {group}.')
         else:
             print(f"Error occurred while changing {chat_id}'s group from {before} to {group}.")
+        cur.close()
 
 
 def promo():
@@ -327,6 +335,7 @@ def start(message):
         cur.execute(
             f'INSERT INTO users(username, id) VALUES ("{message.chat.username or message.chat.title}", "{chat_id}");')
         print(message.chat.username or message.chat.title, 'connected to bot.')
+        cur.close()
     quote = quotes.check(str(chat_id))
     keyboard = types.InlineKeyboardMarkup()
     key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote[4])
