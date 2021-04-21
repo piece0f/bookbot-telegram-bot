@@ -101,11 +101,14 @@ class Quote:
                 used_q = ''
             while True:
                 number = str(random.randint(1, self.est_quotes))
-                if check and number in used_q.split():
-                    continue
+                if check:
+                    if number in used_q.split():
+                        continue
+                    else:
+                        cur.execute(
+                            f"UPDATE quotes_query SET used_quotes = '{used_q + number + ' '}' WHERE user_id = '{user}'")
                 cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
                 quote = cur.fetchone()
-                cur.execute(f"UPDATE quotes_query SET used_quotes = '{used_q + number + ' '}' WHERE user_id = '{user}'")
                 cur.close()
                 return quote
 
@@ -336,7 +339,7 @@ def start(message):
         if check:
             return
         cur.execute(
-            f'INSERT INTO users(username, id) VALUES ("{message.chat.username or message.chat.title}", "{chat_id}");')
+            f"INSERT INTO users(username, id) VALUES ('{message.chat.username or message.chat.title}', '{chat_id}');")
         print(message.chat.username or message.chat.title, 'connected to bot.')
         cur.close()
     quote = quotes.check(str(chat_id))
