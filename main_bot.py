@@ -403,18 +403,17 @@ def commands_handler(message):
             if find not in authors and find not in books:
                 print("Book or Author to add:", find)
                 bot.send_message(user_id,
-                                 '☹<i>К сожалению этой книги или автора у нас нет...\n\n'
+                                 '☹ <i>К сожалению этой книги или автора у нас нет...\n\n'
                                  'Но вы всегда можете попробовать добавить их через /add !</i>',
                                  parse_mode='HTML')
                 return
             source = 'book' if find in books else 'author'
         with sql.cursor() as cur:
             cur.execute(
-                f"SELECT COUNT(id), quote, book, author, url FROM quotes WHERE "
-                f"{source} = '{find if source == 'book' else find.replace(' ', '_', 10)}'"
-                f"GROUP BY quote, book, author, url;")
+                f"SELECT * FROM quotes WHERE "
+                f"{source} = '{find if source == 'book' else find.replace(' ', '_', 10)}'")
             q = cur.fetchall()
-            quotes.send(q[random.randrange(0, q[0][0])], user_id)
+            quotes.send(q[random.randrange(len(q))], user_id)
     else:
         print('Wrong code')
 
