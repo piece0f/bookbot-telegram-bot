@@ -8,27 +8,36 @@ import os
 import random
 import time
 import traceback
-from datetime import datetime
 from threading import Thread
 
-import pymongo
+import pymysql
 import schedule
 import telebot
 from telebot import types
 
 # [BUILT-INS]
-token = os.environ.get('TG_TOKEN')
-mongoDB = os.environ.get('mongoDB')
-client = pymongo.MongoClient(f"{mongoDB}")
+token = os.environ.get("TG_TOKEN")
+secret = os.environ.get('SQL_ROOT_PASSWORD')
 bot = telebot.TeleBot(token)
 
+
+# noinspection PyGlobalUndefined
+def sql_connect():
+    global sql
+    try:
+        sql.close()
+    except:  # In case connection isn't opened yet.
+        pass
+    sql = pymysql.connect(host='localhost', user='root', password=secret, database='bookbot', autocommit=True)
+    sql.cursor().execute("SELECT * FROM wake_up;")
+    sql.cursor().close()
+
+
 # [VARIABLES]
-with open('users/users0', 'r') as f:
-    file = f.read().splitlines()
-    callback_cancel = {int(user): False for user in file}
 cancel_button = types.InlineKeyboardMarkup()
 key_cancel = types.InlineKeyboardButton(text='Отменить', callback_data='cancel')
 cancel_button.add(key_cancel)
+callback_cancel = {}
 
 
 # [CLASSES]
@@ -46,69 +55,72 @@ class AsyncScheduler(Thread):
 
 class Quote:
     """Class for quotes and everything about them"""
+
     def __init__(self):
-        self.db = client["BookBot"]["quotes_queue"]
-        with open("users/stop_list", "r") as _:
-            self.stopped = _.read().splitlines()
+        with sql.cursor() as cur:
+            cur.execute("SELECT count(id) FROM quotes;")
+            self.est_quotes = int(cur.fetchone()[0])
+            cur.close()
 
-    def stop(self, message):
-        """Moves user to 'stopped' list, so he won't receive scheduled quotes"""
-        if str(message.chat.id) not in self.stopped:
-            with open("users/stop_list", "a") as stopped_tmp:
-                stopped_tmp.write(f"{message.chat.id}\n")
-            self.stopped.append(str(message.chat.id))
-            bot.send_message(message.chat.id,
-                             '<b>❌ Рассылка цитат приостановлена!\n</b> \nЧтобы возобновить напишите /resume',
-                             parse_mode='HTML')
-        else:
-            bot.send_message(message.chat.id,
-                             '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
-                             parse_mode='HTML')
+    @staticmethod
+    def stop(chat_id):
+        """Moves chat to 'stopped' list, so he won't receive scheduled quotes"""
+        with sql.cursor() as cur:
+            cur.execute(f"SELECT stopped FROM users WHERE id = '{chat_id}'")
+            if cur.fetchone()[0] == 0:
+                cur.execute(f"UPDATE users SET stopped = 1 WHERE id = '{chat_id}'")
+                bot.send_message(chat_id,
+                                 '<b>❌ Рассылка цитат приостановлена!\n</b> \nЧтобы возобновить напишите /resume',
+                                 parse_mode='HTML')
+            else:
+                bot.send_message(chat_id,
+                                 '<b>⚠ Рассылка цитат уже приостановлена для вас!\n</b> \nЧтобы возобновить напишите /resume',
+                                 parse_mode='HTML')
+            cur.close()
 
-    def resume(self, message):
+    @staticmethod
+    def resume(chat_id):
         """Removes user from 'stopped' list"""
-        if str(message.chat.id) in self.stopped:
-            with open('users/stop_list', 'r') as stopped_tmp:
-                stopped_raw = stopped_tmp.readlines()
-                stopped_raw.remove(str(message.chat.id) + '\n')
-            with open("users/stop_list", "w") as _:
-                _.write(''.join(stopped_raw))
-            self.stopped.remove(str(message.chat.id))
-            bot.send_message(message.chat.id, '<b>✔ Рассылка цитат возобновлена!</b>',
-                             parse_mode='HTML')
-        else:
-            bot.send_message(message.chat.id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
-                             parse_mode='HTML')
+        with sql.cursor() as cur:
+            cur.execute(f"SELECT stopped FROM users WHERE id = '{chat_id}'")
+            if cur.fetchone()[0] == 1:
+                cur.execute(f"UPDATE users SET stopped = 0 WHERE id = '{chat_id}'")
+                bot.send_message(chat_id, '<b>✔ Рассылка цитат возобновлена!</b>',
+                                 parse_mode='HTML')
+            else:
+                bot.send_message(chat_id, '<b>⚠ Вы еще не приостанавливали рассылку!</b>',
+                                 parse_mode='HTML')
+            cur.close()
 
-    def check(self, user: str, check=True) -> dict:
+    def check(self, user: str, check=True) -> tuple:
         """Checks for quote available for {user}"""
-        est_quotes = self.db.estimated_document_count()
-        if self.db.count_documents({"Users": user}) >= est_quotes - 1:
-            # removes user id from DB if there is no more available quotes for user
-            self.db.update_many({"Users": user}, {"$pull": {"Users": user}})
-        all_quotes = self.db.find({})
-        while True:
-            quote = all_quotes[random.randint(0, est_quotes - 1)]
-            if not check:
-                # if check for available is not required return random quote
+        with sql.cursor() as cur:
+            cur.execute(f"SELECT used_quotes FROM quotes_query WHERE user_id = '{user}'")
+            used_q = cur.fetchone()[0] or ' '
+            if len(used_q) >= 255:
+                # removes user id from DB if there is no more available quotes for user
+                cur.execute(f"UPDATE quotes_query SET used_quotes = null WHERE user_id = '{user}'")
+            if used_q == ' ':
+                used_q = ''
+            while True:
+                number = str(random.randint(1, self.est_quotes))
+                if check:
+                    if number in used_q.split():
+                        continue
+                    else:
+                        cur.execute(
+                            f"UPDATE quotes_query SET used_quotes = '{used_q + number + ' '}' WHERE user_id = '{user}'")
+                cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
+                quote = cur.fetchone()
+                cur.close()
                 return quote
-            if user in quote["Users"]:
-                continue
-            required_quote = quote
-            self.db.update_one({"Quote": quote["Quote"]}, {"$push": {"Users": user}})
-            return required_quote
 
-    def random(self, user, checking=False):
+    def random(self, user: str, checking=False):
         """ Sends random quote for user.
             If checking == False, it does not check for the presence of id in the database.
         """
-        quo = self.check(user, check=checking)
-        keyboard = types.InlineKeyboardMarkup()
-        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quo["URL"])
-        keyboard.add(key_book)
-        bot.send_message(user,
-                         text=f'<i>{quo["Quote"]}\n</i>\n<b>{quo["Book"]}</b>\n#{quo["Author"]}',
-                         parse_mode='HTML', reply_markup=keyboard)
+        quote = self.check(user, check=checking)
+        self.send(quote, user)
 
     def randoms(self, group: int):
         """Sends random quote for users.txt who aren't in 'stopped' list"""
@@ -116,14 +128,12 @@ class Quote:
         counter = 0
         r = read_users(group)
         print("=================================")
-        for user_id in r:
-            if user_id in self.stopped:
-                continue
+        for user in r:
             try:
-                self.random(str(user_id), True)
+                self.random(user[0], True)
                 print(f"Latency #{counter}: {str(time.time() - start_time)[:4]} seconds")
             except telebot.apihelper.ApiTelegramException as user_e:
-                print(f"Bad ID ({user_id}):", user_e)
+                print(f"Bad ID ({user[0]}):", user_e)
             except Exception:
                 traceback.print_exc()
             finally:
@@ -132,7 +142,7 @@ class Quote:
     def add(self, message):
         """Adds a quote from user to file, for further verification."""
         global callback_cancel
-        if callback_cancel[message.chat.id]:
+        if callback_cancel.get(message.chat.id):
             callback_cancel[message.chat.id] = False
             return
         if message.text.count('%') != 2:
@@ -143,13 +153,22 @@ class Quote:
                              '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
                              parse_mode='HTML', reply_markup=cancel_button)
             return bot.register_next_step_handler(message, self.add)
-        with open('admin/quotes_4_add.txt', 'a', encoding='utf-8') as verification:
+        with open('quotes/to_add.txt', 'a', encoding='utf-8') as verification:
             verification.write(message.text + '%\n')
         bot.send_message(message.chat.id,
                          '✔ <i>Спасибо за помощь в развитии бота! Ваша цитата была отправлена на проверку'
                          ' и будет добавлена в течении 48 часов!</i>',
                          parse_mode='HTML')
         print(f'{message.chat.id} (@{message.from_user.username or message.chat.title}) запросил добавление цитаты!')
+
+    @staticmethod
+    def send(quo, user):
+        keyboard = types.InlineKeyboardMarkup()
+        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quo[4])
+        keyboard.add(key_book)
+        bot.send_message(user,
+                         text=f'<i>{quo[1]}\n</i>\n<b>{quo[2]}</b>\n#{quo[3]}',
+                         parse_mode='HTML', reply_markup=keyboard)
 
 
 class UserInGroup(Exception):
@@ -163,32 +182,28 @@ try:
     scheduler.start()
 except Exception as e:
     traceback.print_exc()
+sql_connect()
 quotes = Quote()
 schedule.every().day.at('14:00').do(quotes.randoms, group=1)
 schedule.every().day.at('12:00').do(quotes.randoms, group=2)
 schedule.every().day.at('20:00').do(quotes.randoms, group=2)
+schedule.every(20).minutes.do(sql_connect)
 
 
 # [FUNCTIONAL]
-def read_users(group=-1, raw=False):
+def read_users(group=-1, names=False, stopped=False) -> tuple[tuple]:
     """Reading users from db"""
-    group = '.txt' if group == -1 else group
-    with open(f'users/users{group}', 'r') as users_r:
-        r = users_r.readlines() if raw else users_r.read().splitlines()
+    with sql.cursor() as cur:
+        if stopped:
+            command = f"SELECT {'username, ' if names else ''}id FROM users" \
+                      f"{f' WHERE group_number = {group}' if group != -1 else ''};"
+        else:
+            command = f"SELECT {'username, ' if names else ''}id FROM users WHERE stopped = 0" \
+                      f"{f' AND group_number = {group}' if group != -1 else ''};"
+        cur.execute(command)
+        r = cur.fetchall()
+        cur.close()
     return r
-
-
-def help_command(message):
-    """Help with all commands"""
-    commands = ('<b>Список команд:\n'
-                '</b>\n/random<i> - случайная цитата в любое время суток\n'
-                '</i>\n/stop<i> - приостановить рассылку\n'
-                '</i>\n/resume<i> - возобновить рассылку\n'
-                '</i>\n/report<i> - сообщить о проблеме или предложении\n'
-                '</i>\n/add<i> - предложить свою цитату\n'
-                '</i>\n/quotes<i> - сменить частоту получения цитат</i>'
-                )
-    bot.send_message(message.chat.id, text=commands, parse_mode='HTML')
 
 
 def report(message):
@@ -211,11 +226,8 @@ def send(user: str, message):
     try:
         user_id = user
         if not user.isdigit():
-            users_list = read_users()
-            for i in range(len(users_list)):
-                users_list[i] = tuple(users_list[i].split(', '))
-            nicknames = dict(users_list)  # Idk what pycharm wants from me, but it highlights users_lst
-            user_id = nicknames[user]
+            users_list = dict(read_users(names=True, stopped=True))
+            user_id = users_list[user]
         bot.send_message(user_id,
                          f'<b>Сообщение от администрации!</b>\n\n<i>{message}</i>',
                          parse_mode='HTML'
@@ -229,36 +241,31 @@ def send(user: str, message):
 
 def change_group(chat_id, group: int):
     """Changes user's time for quote"""
-    before = 0
-    for i in range(1, 3):
-        group_list = read_users(i, True)
-        if chat_id + '\n' in group_list:
-            if i == group:
-                raise UserInGroup()
-            group_list.remove(chat_id + '\n')
-            before = i
-            with open(f'users{i}', 'w') as file_write:
-                file_write.write(''.join(group_list))
-        elif i == group:
-            group_list.append(chat_id + '\n')
-            with open(f'users{i}', 'w') as file_write:
-                file_write.write(''.join(group_list))
-    print(f'{chat_id} changed his group from {before} to {group}.')
+    with sql.cursor() as cur:
+        cur.execute(f"SELECT group_number FROM users WHERE id = '{chat_id}';")
+        before = cur.fetchone()[0]
+        if group == before:
+            raise UserInGroup()
+        result = cur.execute(f"UPDATE users SET group_number = {group} WHERE id = '{chat_id}';")
+        if result == 1:
+            print(f'{chat_id} changed his group from {before} to {group}.')
+        else:
+            print(f"Error occurred while changing {chat_id}'s group from {before} to {group}.")
+        cur.close()
 
 
 def promo():
     """Sends a little promotional message for all users.txt (except my gf)"""
     r = read_users()
-    r = [usr.split(', ')[1] for usr in r]
     for user_id in r:
-        if user_id == '1103761115':
+        if user_id[0] == '1103761115':
             continue
         try:
-            bot.send_message(user_id,
+            bot.send_message(user_id[0],
                              text=f'Если тебе нравится наш бот, пожалуйста, не жадничай и поделись им с друзьями! 😉\nЯ буду очень рад!',
                              parse_mode='HTML', disable_notification=True)
         except telebot.apihelper.ApiTelegramException as user_e:
-            print(f"Bad USER ({user_id}):", user_e)
+            print(f"Bad USER ({user_id[0]}):", user_e)
 
 
 schedule.every(2).days.at('16:00').do(promo)
@@ -267,7 +274,7 @@ schedule.every(2).days.at('16:00').do(promo)
 # problem handler
 def report_send(message):
     global callback_cancel
-    if callback_cancel[message.chat.id]:
+    if callback_cancel.get(message.chat.id):
         callback_cancel[message.chat.id] = False
         return
     bot.send_message(977341432,
@@ -281,7 +288,7 @@ def report_send(message):
 # idea handler
 def support_send(message):
     global callback_cancel
-    if callback_cancel[message.chat.id]:
+    if callback_cancel.get(message.chat.id):
         callback_cancel[message.chat.id] = False
         return
     bot.send_message(977341432,
@@ -293,7 +300,7 @@ def support_send(message):
 
 
 # [ADMIN]
-@bot.message_handler(commands=['gift', 'promo', 'send'])
+@bot.message_handler(commands=['gift', 'promo', 'send', 'reconnect'])
 def admin(message):
     """Admin message handler, answers on admin requests"""
     print('Admin command execution...')
@@ -310,6 +317,11 @@ def admin(message):
         command = message.text.split()[1:]
         send(command[0], ' '.join(command[1:]))
         print("Succeed")
+    elif message.text.startswith('/reconnect'):
+        try:
+            sql_connect()
+        except Exception as connection_error:
+            print("Error while reconnecting to database:", connection_error)
     else:
         print('Wrong code')
 
@@ -317,63 +329,91 @@ def admin(message):
 # [START]
 @bot.message_handler(commands=['start'])
 def start(message):
-    global callback_cancel
-    r = read_users(0)
     chat_id = message.chat.id
     bot.send_message(chat_id,
-                     '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>\nА также, в скором времени появится функция выбора любимых авторов, технология подбора цитат для Вас индивидуально, и много других интересных фишек! 😉',
+                     '<b>Привет, я BookBot! 📚\n</b> \n<i>С данного момента, тебе каждый день будут приходить случайные цитаты. '
+                     'Для того, чтобы узнать побольше о функционале бота - напиши /help \n</i>'
+                     '\nА также, Вы можете попробовать найти цитаты из вашей любимой книги или вашего любимого автора, '
+                     'написав /search',
                      parse_mode='HTML')
-    if str(chat_id) in r:
-        return
-    with open('users/users0', 'a') as users_w1, open('users/users1', 'a') as users_w2, open('users/users.txt',
-                                                                                            'a') as users_w:
-        if message.from_user.id == message.chat.id:
-            users_w.write(f'{message.from_user.username}, {chat_id}\n')
-        users_w1.write(f'{chat_id}\n')
-        users_w2.write(f'{chat_id}\n')
+    with sql.cursor() as cur:
+        check = cur.execute(f"SELECT id FROM users WHERE id = '{chat_id}'")
+        if check:
+            return
+        cur.execute(
+            f"INSERT INTO users(username, id) VALUES ('{message.chat.username or message.chat.title}', '{chat_id}');")
         print(message.chat.username or message.chat.title, 'connected to bot.')
-    quote = quotes.check(user=str(chat_id))
-    keyboard = types.InlineKeyboardMarkup()
-    key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quote["URL"])
-    keyboard.add(key_book)
-    bot.send_message(chat_id,
-                     text=f'Держи свою первую цитату!\n\n<i>{quote["Quote"]}\n</i>\n<b>{quote["Book"]}</b>\n#{quote["Author"]}',
-                     parse_mode='HTML')
-    callback_cancel.update({int(message.chat.id): False})
+        cur.close()
+    quote = quotes.check(str(chat_id))
+    bot.send_message(chat_id, f'Держи свою первую цитату!')
+    quotes.send(quote, chat_id)
 
 
 # user commands handler
-@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add', 'quotes'])
+@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add', 'quotes', 'search'])
 def commands_handler(message):
     command = message.text
+    user_id = message.chat.id
     if command.startswith('/stop'):
-        quotes.stop(message)
+        quotes.stop(user_id)
     elif command.startswith('/resume'):
-        quotes.resume(message)
+        quotes.resume(user_id)
     elif command.startswith('/help'):
-        help_command(message)
+        commands = ('<b>Список команд:\n'
+                    '</b>\n/random<i> - случайная цитата в любое время суток\n'
+                    '</i>\n/stop<i> - приостановить рассылку\n'
+                    '</i>\n/resume<i> - возобновить рассылку\n'
+                    '</i>\n/report<i> - сообщить о проблеме или предложении\n'
+                    '</i>\n/add<i> - предложить свою цитату\n'
+                    '</i>\n/quotes<i> - сменить частоту получения цитат</i>\n'
+                    '</i>\n/search<i> - найти цитату по книге или автору</i>'
+                    )
+        bot.send_message(user_id, text=commands, parse_mode='HTML')
     elif command.startswith('/quotes'):
         group = types.InlineKeyboardMarkup()
         group.add(types.InlineKeyboardButton(text='14.00 (UTC+6)', callback_data='1'))
         group.add(types.InlineKeyboardButton(text='12.00 + 20.00 (UTC+6)', callback_data='2'))
-        bot.send_message(message.chat.id,
+        bot.send_message(user_id,
                          '<b>Смена частоты получения цитат:</b>',
                          parse_mode='HTML', reply_markup=group)
     elif command.startswith('/report'):
         report(message)
     elif command.startswith('/random'):
         try:
-            quotes.random(str(message.chat.id), False)
-        except:
-            pass
+            quotes.random(str(user_id), False)
+        except Exception as random_e:
+            print("Random quote failed:", random_e)
     elif command.startswith('/add'):
-        global cancel_button
-        bot.send_message(message.chat.id,
+        bot.send_message(user_id,
                          '📚 Отправьте цитату в таком виде:\n\n'
                          '<i>текст_цитаты%книга%автор</i>\n\n'
                          '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
                          parse_mode='HTML', reply_markup=cancel_button)
         bot.register_next_step_handler(message, quotes.add)
+    elif command.startswith('/search'):
+        find = command[8:]
+        if len(command.split()) == 1:
+            bot.send_message(user_id,
+                             '📚 <i>Напишите имя автора или книги после /search черех пробел.</i>',
+                             parse_mode='HTML')
+            return
+        with open('quotes/authors', 'r') as authors, open('quotes/books', 'r') as books:
+            authors = authors.read().splitlines()
+            books = books.read().splitlines()
+            if find not in authors and find not in books:
+                print("Book or Author to add:", find)
+                bot.send_message(user_id,
+                                 '☹ <i>К сожалению этой книги или автора у нас нет...\n\n'
+                                 'Но вы всегда можете попробовать добавить их через /add !</i>',
+                                 parse_mode='HTML')
+                return
+            source = 'book' if find in books else 'author'
+        with sql.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM quotes WHERE "
+                f"{source} = '{find if source == 'book' else find.replace(' ', '_', 10)}'")
+            q = cur.fetchall()
+            quotes.send(q[random.randrange(len(q))], user_id)
     else:
         print('Wrong code')
 
@@ -408,34 +448,36 @@ def callback_worker(call):
             print(other_e)
     elif call.data == 'cancel':
         global callback_cancel
-        callback_cancel[call.message.chat.id] = True
+        callback_cancel.update({call.message.chat.id: True})
         bot.send_message(call.message.chat.id,
                          '<b><i>Отменено!</i></b>',
                          parse_mode='HTML')
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id)
 
 
-# users0 = read_users(0)
+# users0 = read_users()
 # for _ in users0:
 #     try:
-#         bot.send_message(_,
+#         print("Announced")
+#         bot.send_message(_[0],
 #                          '⚠ <b>ВНИМАНИЕ!</b>\n\n'
 #                          'Добавлена новая команда!\n'
-#                          'Чтобы получать 2 цитаты в день, напишите /quotes 2! Подробнее о команде в /help',
+#                          'Попробуйте найти цитаты по книге или автору - /search !',
 #                          parse_mode='HTML')
 #     except Exception:
 #         continue
-# quotes.random(656796974, True)
 # quotes.randoms(0)
 
 try_count = 1
 last_exc = time.time()
 while True:
     try:
+        sql_connect()
         bot.polling(none_stop=True, interval=1)
     except Exception as e:
         try_count += 1 if time.time() - last_exc < 15 else -try_count
         with open("admin/connection_log.txt", "a") as dump:
-            dump.write(f'{datetime.now().time()} - Connection ERROR: {e}\n')
+            dump.write("==============================\nConnection ERROR: " + traceback.format_exc())
         last_exc = time.time()
+
         print("Reconnecting:", try_count)
