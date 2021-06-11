@@ -106,19 +106,23 @@ class Quote:
             cur.execute(f"SELECT used_quotes FROM quotes_query WHERE user_id = '{user}'")
             used_quotes = cur.fetchone()[0]
             used_quotes = '' if not used_quotes else used_quotes
-            if len(used_quotes) >= 255:
+            if len(used_quotes) >= 253:
                 # removes user id from DB if there is no more available quotes for user
                 cur.execute(f"UPDATE quotes_query SET used_quotes = null WHERE user_id = '{user}'")
             while True:
                 number = str(random.randint(1, self.est_quotes))
+                result = cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
+                if result == 0:
+                    print(f"Quote not found for {user}, last number is {number}")
                 if check:
                     if number in used_quotes.split():
                         continue
-                    else:
-                        cur.execute(
-                            f"UPDATE quotes_query SET used_quotes = '{used_quotes + number + ' '}' WHERE user_id = '{user}'")
+                    cur.execute(
+                        f"UPDATE quotes_query SET used_quotes = '{used_quotes + number + ' '}' WHERE user_id = '{user}'")
                 cur.execute(f"SELECT * FROM quotes WHERE id = {number};")
                 quote = cur.fetchone()
+                if not quote:
+                    print(f"Quote not found for {user}, last number is {number}")
                 return quote
 
     def random(self, user: str, checking=False):
@@ -145,26 +149,29 @@ class Quote:
             finally:
                 counter += 1
 
-    def add(self, message):
+    def add(self, message, full: bool = True, other=None):
         """Adds a quote from user to file, for further verification."""
         global callback_cancel
         if callback_cancel.get(message.chat.id):
             callback_cancel[message.chat.id] = False
             return
-        if message.text.count('%') != 2:
+        if full and (message.text.count('%') != 2 or len(message.text) < 25):
             bot.send_message(message.chat.id,
                              '⚠ <b>Неправильный формат!</b>\nОтправьте цитату в таком виде:\n\n'
                              '<i>текст_цитаты%книга%автор</i>\n\n'
                              '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
                              parse_mode='HTML', reply_markup=cancel_button)
             return bot.register_next_step_handler(message, self.add)
+        if not full and other is not None:
+            message.text += '%' + other
         with open('quotes/to_add.txt', 'a', encoding='utf-8') as verification:
             verification.write(message.text + '%\n')
             bot.send_message(message.chat.id,
                              '✔ <i>Спасибо за помощь в развитии бота! Ваша цитата была отправлена на проверку'
                              ' и будет добавлена в течении 48 часов!</i>',
                              parse_mode='HTML')
-            print(f'{message.chat.id} (@{message.from_user.username or message.chat.title}) запросил добавление цитаты!')
+            print(
+                f'{message.chat.id} (@{message.from_user.username or message.chat.title}) запросил добавление цитаты!')
 
 
 class UserInGroup(Exception):
@@ -198,6 +205,31 @@ def read_users(group=-1, names=False, stopped=False) -> tuple[tuple]:
                       f"{f' AND group_number = {group}' if group != -1 else ''};"
         cur.execute(command)
         return cur.fetchall()
+
+
+def add_many_quotes(message):
+    global callback_cancel
+    if callback_cancel.get(message.chat.id):
+        callback_cancel[message.chat.id] = False
+        return
+    if message.text.count('%') != 1 or len(message.text) < 6:
+        bot.send_message(message.chat.id,
+                         '⚠ <b>Неправильный формат! Попробуйте еще раз.</b>\n\n'
+                         '<i>книга%автор</i>\n\n'
+                         '<i>Вино из одуванчиков%Рэй Брэдбери</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        return bot.register_next_step_handler(message, add_many_quotes)
+    bot.send_message(message.chat.id,
+                     '📚 Теперь отправляйте текст ваших цитат! (по одной на сообщение)\n\n'
+                     '<i>А когда закончите, нажмите отменить 😉</i>\n\n',
+                     parse_mode='HTML', reply_markup=cancel_button)
+
+    def tmp(message):
+        if callback_cancel.get(message.chat.id, None) is None:
+            bot.register_next_step_handler(message, quotes.add, full=False, other=message.text.strip())
+            return bot.register_next_step_handler(message, tmp)
+
+    tmp(message)
 
 
 def send(user: str, message):
@@ -255,7 +287,7 @@ def report(message):
         return
     keyboard = types.InlineKeyboardMarkup()
     key_report = types.InlineKeyboardButton(text='❗ Проблема/Ошибка', callback_data='report')
-    keyboard.add(key_report)  # добавляем кнопку в клавиатуру
+    keyboard.add(key_report)
     key_support = types.InlineKeyboardButton(text='💡 Идея/Предложение', callback_data='support')
     keyboard.add(key_support)
     bot.send_message(message.from_user.id, text='О чем вы хотите <b>сообщить</b>?', parse_mode='HTML',
@@ -331,15 +363,15 @@ def start(message):
         if cur.execute(f"SELECT id FROM users WHERE id = '{chat_id}'"):
             return
         cur.execute(
-            f"INSERT INTO users(username, id) VALUES ('{message.chat.username or message.chat.title}', '{chat_id}');")
-        print(message.chat.username or message.chat.title, 'connected to bot.')
+            f"INSERT INTO users(username, id) VALUES ('{message.chat.title or message.chat.username}', '{chat_id}');")
+        print(message.chat.title or message.chat.username, 'connected to bot.')
     quote = quotes.check(str(chat_id))
     bot.send_message(chat_id, f'Держи свою первую цитату!')
     quotes.send(quote, chat_id)
 
 
 # user commands handler
-@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add', 'quotes', 'search'])
+@bot.message_handler(commands=['stop', 'resume', 'help', 'report', 'random', 'add', 'quotes', 'search', 'addmany'])
 def commands_handler(message):
     command = message.text
     user_id = message.chat.id
@@ -354,8 +386,10 @@ def commands_handler(message):
                     '</i>\n/resume<i> - возобновить рассылку\n'
                     '</i>\n/report<i> - сообщить о проблеме или предложении\n'
                     '</i>\n/add<i> - предложить свою цитату\n'
+                    '</i>\n/addmany<i> - предложить несколько цитат из одной книги\n'
                     '</i>\n/quotes<i> - сменить частоту получения цитат\n'
                     '</i>\n/search<i> - найти цитату по книге или автору</i>'
+
                     )
         bot.send_message(user_id, text=commands, parse_mode='HTML')
     elif command.startswith('/quotes'):
@@ -370,8 +404,15 @@ def commands_handler(message):
     elif command.startswith('/random'):
         try:
             quotes.random(str(user_id), False)
-        except Exception as random_e:
-            print("Random quote failed:", random_e)
+        except Exception:
+            traceback.print_exc()
+    elif command.startswith('/addmany'):
+        bot.send_message(user_id,
+                         '📚 Отправьте автора цитат и книгу в таком формате:\n\n'
+                         '<i>книга%автор</i>\n\n'
+                         '<i>Вино из одуванчиков%Рэй Брэдбери</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        bot.register_next_step_handler(message, add_many_quotes)
     elif command.startswith('/add'):
         bot.send_message(user_id,
                          '📚 Отправьте цитату в таком виде:\n\n'
@@ -383,10 +424,11 @@ def commands_handler(message):
         find = command[8:]
         if len(command.split()) == 1:
             bot.send_message(user_id,
-                             '📚 <i>Напишите имя автора или книги после /search черех пробел.</i>',
+                             '📚 <i>Напишите имя автора или книги после /search через пробел (в одном сообщении).</i>',
                              parse_mode='HTML')
             return
-        with open('quotes/authors', 'r') as authors, open('quotes/books', 'r') as books:
+        with open('quotes/authors', 'r', encoding='UTF-8') as authors, open('quotes/books', 'r',
+                                                                            encoding='UTF-8') as books:
             authors = authors.read().splitlines()
             books = books.read().splitlines()
             if find not in authors and find not in books:
@@ -405,6 +447,14 @@ def commands_handler(message):
             quotes.send(q[random.randrange(len(q))], user_id)
     else:
         print('Wrong code')
+
+
+@bot.message_handler()
+def idk(message):
+    bot.send_message(message.chat.id,
+                     '<i>Прости, я не понимаю чего ты хочешь 😰</i>\n\n'
+                     'Попробуй написать /help !',
+                     parse_mode='HTML')
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -457,14 +507,14 @@ def callback_worker(call):
 #         continue
 # quotes.randoms(0)
 
-try_count = 1
+try_count = 0
 last_exc = time.time()
 while True:
     try:
         sql_connect()
         bot.polling(none_stop=True, interval=1)
     except Exception as e:
-        try_count += 1 if time.time() - last_exc < 15 else -try_count
+        try_count += 1 if time.time() - last_exc < 30 else -try_count
         with open("admin/connection_log.txt", "a") as dump:
             dump.write("==============================\nConnection ERROR: " + traceback.format_exc())
         last_exc = time.time()
