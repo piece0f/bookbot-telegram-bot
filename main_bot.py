@@ -154,8 +154,10 @@ class Quote:
         """Adds a quote from user to file, for further verification."""
         global callback_cancel
         if callback_cancel.get(message.chat.id):
-            callback_cancel[message.chat.id] = False
+            if full:
+                callback_cancel[message.chat.id] = False
             return
+
         if isfilm:
             if full and (message.text.count('%') != 2 or len(message.text) < 15):
                 bot.send_message(message.chat.id,
@@ -244,14 +246,15 @@ def add_many_quotes(message, isfilm: bool = False):
                      '<i>А когда закончите, нажмите отменить 😉</i>\n\n',
                      parse_mode='HTML', reply_markup=cancel_button)
 
-    def tmp(message, isfilm=False):
-        if callback_cancel.get(message.chat.id, None) is None:
-            info = message.text.strip()
-            bot.register_next_step_handler(message, quotes.add, full=False, info=info, isfilm=isfilm)
-            message.text = info
-            return bot.register_next_step_handler(message, tmp, isfilm=isfilm)
+    def tmp(msg, data, isfilm=False):
+        if callback_cancel.get(data[1], None):
+            callback_cancel[data[1]] = False
+            return
+        bot.register_next_step_handler(msg, quotes.add, full=False, info=data[0], isfilm=isfilm)
+        return bot.register_next_step_handler(msg, tmp, isfilm=isfilm, data=data)
 
-    tmp(message, isfilm)
+    info = [message.text.strip(), message.chat.id]
+    tmp(message, info, isfilm)
 
 
 def send(user: str, message):
