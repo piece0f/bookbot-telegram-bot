@@ -12,6 +12,7 @@ from threading import Thread
 
 import pymysql
 import schedule
+import simple_funcs as sf
 import telebot
 from telebot import types
 
@@ -21,7 +22,6 @@ secret = os.environ.get('SQL_ROOT_PASSWORD')
 bot = telebot.TeleBot(token)
 
 
-# noinspection PyGlobalUndefined
 def sql_connect():
     global sql
     try:
@@ -63,13 +63,14 @@ class Quote:
             cur.close()
 
     @staticmethod
-    def send(quo, user):
+    def send(quo, chat):
         keyboard = types.InlineKeyboardMarkup()
-        key_book = types.InlineKeyboardButton(text='📖', callback_data='book', url=quo[4])
-        keyboard.add(key_book)
-        bot.send_message(user,
-                         text=f'<i>{quo[1]}\n</i>\n<b>{quo[2]}</b>\n#{quo[3]}',
-                         parse_mode='HTML', reply_markup=keyboard)
+        link = types.InlineKeyboardButton(text='📖' if quo[3] is not None else '🎬', 
+                                          callback_data='link', url=quo[4])
+        keyboard.add(link)
+        quote = (f'<i>{quo[1]}\n</i>\n<b>{quo[2]}</b>\n#{quo[3]}' if quo[3] is not None else 
+                 f'<i>{quo[1]}\n</i>\n<b>{quo[2]} ({quo[5]})</b>')
+        bot.send_message(chat, text=quote, parse_mode='HTML', reply_markup=keyboard)
 
     @staticmethod
     def stop(chat_id):
@@ -106,8 +107,8 @@ class Quote:
             cur.execute(f"SELECT used_quotes FROM quotes_query WHERE user_id = '{user}'")
             used_quotes = cur.fetchone()[0]
             used_quotes = '' if not used_quotes else used_quotes
-            if len(used_quotes) >= 253:
-                # removes user id from DB if there is no more available quotes for user
+            if len(used_quotes) >= 251:
+                # removes used quotes from DB if there is no more available quotes for user
                 cur.execute(f"UPDATE quotes_query SET used_quotes = null WHERE user_id = '{user}'")
             while True:
                 number = str(random.randint(1, self.est_quotes))
@@ -149,29 +150,41 @@ class Quote:
             finally:
                 counter += 1
 
-    def add(self, message, full: bool = True, other=None):
+    def add(self, message, full: bool = True, info=None, isfilm: bool = False):
         """Adds a quote from user to file, for further verification."""
         global callback_cancel
         if callback_cancel.get(message.chat.id):
             callback_cancel[message.chat.id] = False
             return
-        if full and (message.text.count('%') != 2 or len(message.text) < 25):
-            bot.send_message(message.chat.id,
-                             '⚠ <b>Неправильный формат!</b>\nОтправьте цитату в таком виде:\n\n'
-                             '<i>текст_цитаты%книга%автор</i>\n\n'
-                             '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
-                             parse_mode='HTML', reply_markup=cancel_button)
-            return bot.register_next_step_handler(message, self.add)
-        if not full and other is not None:
-            message.text += '%' + other
-        with open('quotes/to_add.txt', 'a', encoding='utf-8') as verification:
+        if isfilm:
+            if full and (message.text.count('%') != 2 or len(message.text) < 15):
+                bot.send_message(message.chat.id,
+                                 '⚠ <b>Неправильный формат!</b>\nОтправьте цитату в таком виде:\n\n'
+                                 '<i>текст_цитаты%фильм%год</i>\n\n'
+                                 '<i>Хьюстон, у нас проблема.%Апполон 13%1995</i>',
+                                 parse_mode='HTML', reply_markup=cancel_button)
+                return bot.register_next_step_handler(message, self.add, full=full, info=info, isfilm=isfilm)
+            if not full and info is not None:
+                message.text += '%' + info
+            file = 'quotes/f_to_add.txt'
+        else:
+            if full and (message.text.count('%') != 2 or len(message.text) < 25):
+                bot.send_message(message.chat.id,
+                                 '⚠ <b>Неправильный формат!</b>\nОтправьте цитату в таком виде:\n\n'
+                                 '<i>текст_цитаты%книга%автор</i>\n\n'
+                                 '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
+                                 parse_mode='HTML', reply_markup=cancel_button)
+                return bot.register_next_step_handler(message, self.add, full=full, info=info, isfilm=isfilm)
+            if not full and info is not None:
+                message.text += '%' + info
+            file = 'quotes/to_add.txt'
+        with open(file, 'a', encoding='utf-8') as verification:
             verification.write(message.text + '%\n')
             bot.send_message(message.chat.id,
                              '✔ <i>Спасибо за помощь в развитии бота! Ваша цитата была отправлена на проверку'
                              ' и будет добавлена в течении 48 часов!</i>',
                              parse_mode='HTML')
-            print(
-                f'{message.chat.id} (@{message.from_user.username or message.chat.title}) запросил добавление цитаты!')
+        print(f'{message.chat.id} (@{message.from_user.username or message.chat.title}) запросил добавление цитаты!')
 
 
 class UserInGroup(Exception):
@@ -207,12 +220,19 @@ def read_users(group=-1, names=False, stopped=False) -> tuple[tuple]:
         return cur.fetchall()
 
 
-def add_many_quotes(message):
+def add_many_quotes(message, isfilm: bool = False):
     global callback_cancel
     if callback_cancel.get(message.chat.id):
         callback_cancel[message.chat.id] = False
         return
     if message.text.count('%') != 1 or len(message.text) < 6:
+        if isfilm:
+            bot.send_message(message.chat.id,
+                         '⚠ <b>Неправильный формат! Попробуйте еще раз.</b>\n\n'
+                         '<i>фильм%год</i>\n\n'
+                         '<i>Апполон 13%1995</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+            return bot.register_next_step_handler(message, add_many_quotes, isfilm=True)
         bot.send_message(message.chat.id,
                          '⚠ <b>Неправильный формат! Попробуйте еще раз.</b>\n\n'
                          '<i>книга%автор</i>\n\n'
@@ -224,12 +244,14 @@ def add_many_quotes(message):
                      '<i>А когда закончите, нажмите отменить 😉</i>\n\n',
                      parse_mode='HTML', reply_markup=cancel_button)
 
-    def tmp(message):
+    def tmp(message, isfilm=False):
         if callback_cancel.get(message.chat.id, None) is None:
-            bot.register_next_step_handler(message, quotes.add, full=False, other=message.text.strip())
-            return bot.register_next_step_handler(message, tmp)
+            info = message.text.strip()
+            bot.register_next_step_handler(message, quotes.add, full=False, info=info, isfilm=isfilm)
+            message.text = info
+            return bot.register_next_step_handler(message, tmp, isfilm=isfilm)
 
-    tmp(message)
+    tmp(message, isfilm)
 
 
 def send(user: str, message):
@@ -407,44 +429,54 @@ def commands_handler(message):
         except Exception:
             traceback.print_exc()
     elif command.startswith('/addmany'):
-        bot.send_message(user_id,
-                         '📚 Отправьте автора цитат и книгу в таком формате:\n\n'
-                         '<i>книга%автор</i>\n\n'
-                         '<i>Вино из одуванчиков%Рэй Брэдбери</i>',
-                         parse_mode='HTML', reply_markup=cancel_button)
-        bot.register_next_step_handler(message, add_many_quotes)
+        choose_type = types.InlineKeyboardMarkup([[types.InlineKeyboardButton(text='Фильм 🎬', callback_data="from film"),
+                                                   types.InlineKeyboardButton(text='Книга 📖', callback_data="from book")]])
+        bot.send_message(user_id, "<i>Выберите, цитаты откуда вы хотите отправить</i>",
+                         parse_mode='HTML', reply_markup=choose_type)
     elif command.startswith('/add'):
-        bot.send_message(user_id,
-                         '📚 Отправьте цитату в таком виде:\n\n'
-                         '<i>текст_цитаты%книга%автор</i>\n\n'
-                         '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
-                         parse_mode='HTML', reply_markup=cancel_button)
-        bot.register_next_step_handler(message, quotes.add)
+        choose_type = types.InlineKeyboardMarkup([[types.InlineKeyboardButton(text='Фильм 🎬', callback_data="Quote from film"),
+                                                   types.InlineKeyboardButton(text='Книга 📖', callback_data="Quote from book")]])
+        bot.send_message(user_id, "<i>Выберите, какую цитату вы хотите отправить</i>",
+                         parse_mode='HTML', reply_markup=choose_type)
     elif command.startswith('/search'):
-        find = command[8:]
         if len(command.split()) == 1:
             bot.send_message(user_id,
                              '📚 <i>Напишите имя автора или книги после /search через пробел (в одном сообщении).</i>',
                              parse_mode='HTML')
             return
+        find = ' '.join([sf.clean(i) for i in command[8:].lower().split()]).strip()
         with open('quotes/authors', 'r', encoding='UTF-8') as authors, open('quotes/books', 'r',
                                                                             encoding='UTF-8') as books:
             authors = authors.read().splitlines()
             books = books.read().splitlines()
-            if find not in authors and find not in books:
-                print("Book or Author to add:", find)
-                bot.send_message(user_id,
-                                 '☹ <i>К сожалению этой книги или автора у нас нет...\n\n'
-                                 'Но вы всегда можете попробовать добавить их через /add !</i>',
-                                 parse_mode='HTML')
-                return
-            source = 'book' if find in books else 'author'
+            source = 'author'
+            if find not in authors:
+                if find not in books:
+                    bot.send_message(977341432, f'Добавить:\n{command[8:]}/{find}')
+                    bot.send_message(user_id,
+                                     '☹ <i>К сожалению этой книги или автора у нас нет...\n\n'
+                                     'Но вы всегда можете попробовать добавить их через /add !</i>',
+                                     parse_mode='HTML')
+                    return
+                find = command[8:]
+                source = 'book'
+            
         with sql.cursor() as cur:
             cur.execute(
                 f"SELECT * FROM quotes WHERE "
-                f"{source} = '{find if source == 'book' else find.replace(' ', '_', 10)}'")
+                f"{source} = '{find if source == 'book' else ' '.join([i.capitalize() for i in find.replace(' ', '_', 10).split()])}'")
             q = cur.fetchall()
-            quotes.send(q[random.randrange(len(q))], user_id)
+            if len(q) == 0 and source == 'book':
+                cur.execute(f"SELECT * FROM quotes WHERE book = '{find.capitalize()}'")
+                q = cur.fetchall()
+                if len(q) == 0:
+                    cur.execute(f"SELECT * FROM quotes WHERE book = '{' '.join(word.capitalize() for word in find.split())}'")
+                    q = cur.fetchall()
+                    if len(q) == 0: 
+                        bot.send_message(user_id,
+                                         '⚠ <i>Перепроверьте название книги, что-то написано не так!</i>', parse_mode='HTML')
+            else:
+                quotes.send(q[random.randrange(len(q))], user_id)
     else:
         print('Wrong code')
 
@@ -465,7 +497,7 @@ def callback_worker(call):
                          '<i>Опишите проблему, Ваше сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
                          parse_mode='HTML', reply_markup=cancel_button)
         bot.register_next_step_handler(call.message, report_send)
-
+        
     elif call.data == "support":
         bot.send_message(call.message.chat.id,
                          '<i>Опишите Вашу идею, сообщение будет доставлено администрации и принято на рассмотрение!\n</i>',
@@ -485,13 +517,45 @@ def callback_worker(call):
                              parse_mode='HTML')
         except Exception as other_e:
             print(other_e)
+        bot.answer_callback_query(call.id)
+
+    elif call.data == "from film":
+        bot.send_message(call.message.chat.id,
+                         '🎬 Отправьте фильм и год в таком формате:\n\n'
+                         '<i>фильм%год</i>\n\n'
+                         '<i>Апполон 13%1995</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        bot.register_next_step_handler(call.message, add_many_quotes, isfilm=True)
+        
+    elif call.data == "from book":
+        bot.send_message(call.message.chat.id,
+                         '📚 Отправьте автора цитат и книгу в таком формате:\n\n'
+                         '<i>книга%автор</i>\n\n'
+                         '<i>Вино из одуванчиков%Рэй Брэдбери</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        bot.register_next_step_handler(call.message, add_many_quotes)
+        
+    elif call.data == "Quote from film":
+        bot.send_message(call.message.chat.id,
+                         '🎬 Отправьте цитату в таком виде:\n\n'
+                         '<i>текст_цитаты%фильм%год</i>\n\n'
+                         '<i>Хьюстон, у нас проблема.%Апполон 13%1995</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        bot.register_next_step_handler(call.message, quotes.add, isfilm=True)
+        
+    elif call.data == "Quote from book":
+        bot.send_message(call.message.chat.id,
+                         '📚 Отправьте цитату в таком виде:\n\n'
+                         '<i>текст_цитаты%книга%автор</i>\n\n'
+                         '<i>Что хочешь помнить, то всегда помнишь.%Вино из одуванчиков%Рэй Брэдбери</i>',
+                         parse_mode='HTML', reply_markup=cancel_button)
+        bot.register_next_step_handler(call.message, quotes.add)
+        
     elif call.data == 'cancel':
         global callback_cancel
         callback_cancel.update({call.message.chat.id: True})
-        bot.send_message(call.message.chat.id,
-                         '<b><i>Отменено!</i></b>',
-                         parse_mode='HTML')
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Отменено!")
 
 
 # users0 = read_users()
@@ -507,15 +571,33 @@ def callback_worker(call):
 #         continue
 # quotes.randoms(0)
 
+
+# yes = types.InlineKeyboardButton(text='🙂 Да!', callback_data='yes')
+# no = types.InlineKeyboardButton(text='☹ Нет!', callback_data='no')
+# answer = types.InlineKeyboardMarkup([[yes, no]])
+
+# with sql.cursor() as cur:
+#     cur.execute("SELECT id FROM users;")
+#     users_qa = cur.fetchall()
+
+# for user in users_qa:
+#     bot.send_message(user[0],
+#         "⚠ <b>ВНИМАНИЕ!\nПожалуйста, ответьте на вопрос ниже в целях выбора дальнейшего направления развития бота.</b>\n\n"
+#         "<i>Хотите ли вы видеть цитаты из фильмов в рассылке?</i>\n\nЕсли у вас есть любимые фильмы, цитаты из которых вы хотели бы получать,"
+#         "можете отправить их с помощью /report.", parse_mode="HTML", reply_markup=answer)
+#     print(user, '- Succes')
+
+
 try_count = 0
 last_exc = time.time()
 while True:
     try:
-        sql_connect()
+        if try_count > 0:
+            sql_connect()
         bot.polling(none_stop=True, interval=1)
     except Exception as e:
         try_count += 1 if time.time() - last_exc < 30 else -try_count
-        with open("admin/connection_log.txt", "a") as dump:
-            dump.write("==============================\nConnection ERROR: " + traceback.format_exc())
+        with open("admin/connection_log.txt", "a") as log:
+            log.write("==============================\nConnection ERROR: " + traceback.format_exc())
         last_exc = time.time()
         print("Reconnecting:", try_count)
